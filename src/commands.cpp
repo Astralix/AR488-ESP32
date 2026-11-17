@@ -1423,14 +1423,22 @@ void Controller::wifi_h(char *params) {
           cmdstream->println(F("Host name set. Use ++wifi connect to apply, ++savecfg to keep it."));
       }
       else if (strncmp(keyword, "pass", 4)==0) {
-        if (dlen>0 && dlen<64) {
-          memset(config.passkey, '\0', 64);
+        // WPA2/WPA3 passphrase: 8..63 printable ASCII characters
+        bool valid = (dlen >= 8 && dlen < 64);
+        for (uint8_t i = 0; valid && i < dlen; i++) {
+          valid = (datastr[i] >= 32 && datastr[i] <= 126);
+        }
+        if (valid) {
+          memset(config.passkey, '\0', sizeof(config.passkey));
           strncpy(config.passkey, datastr, dlen);
+          if (config.isVerb)
+            cmdstream->println(F("Password set. Use ++wifi connect to apply, ++savecfg to keep it."));
         } else {
           if (config.isVerb)
-			cmdstream->println(F("Length of pass must not exceed 63 characters!"));
+			cmdstream->println(F("Password must be 8-63 printable characters!"));
           errBadCmd();
         }
+        memset(datastr, '\0', dlen);  // do not leave the password in the command buffer
       }
 	  else {
 		if (config.isVerb)
@@ -1441,7 +1449,8 @@ void Controller::wifi_h(char *params) {
         cmdstream->println(config.ssid);
       }
       else if (strncmp(keyword, "pass", 4)==0) {
-        cmdstream->println(config.passkey);
+        // Never show the password, only whether one is set
+        cmdstream->println(config.passkey[0] ? F("set") : F("not set"));
       }
       else if (strncmp(keyword, "host", 4)==0) {
         cmdstream->println(wifiHostname());
@@ -1517,7 +1526,7 @@ static const char cmdHelp[] PROGMEM = {
   "verbose: Verbose (human readable) mode\n"
 #ifdef AR488_WIFI_ENABLE
   "wifi ssid: Set or get the wifi SSID (31 chars max)\n"
-  "wifi passkey: Set or get the wifi passphrase (63 chars max)\n"
+  "wifi pass: Set the wifi passphrase (8-63 chars); query shows only set/not set\n"
   "wifi connect: Connect to the configure wifi AP\n"
   "wifi scan: Scan for accessible AP\n"
   "wifi status: Show WiFi connection state, IP address and signal\n"
