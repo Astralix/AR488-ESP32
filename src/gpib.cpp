@@ -35,6 +35,11 @@ void GPIB::initPins(){
 #ifdef SN7516X_DC
   pinMode(SN7516X_DC, OUTPUT);
 #endif
+#ifdef SN7516X_PE
+  // SN75160 PE: HIGH = push-pull data outputs (only active while talking, TE=HIGH)
+  pinMode(SN7516X_PE, OUTPUT);
+  digitalWrite(SN7516X_PE, HIGH);
+#endif
   if (config.cmode==2) {
     // Set controller mode on SN75161/2
     digitalWrite(SN7516X_TE, LOW);
