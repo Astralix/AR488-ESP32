@@ -106,6 +106,7 @@ public:  // TODO: better than this...
 
   // Escaped character flag
   bool isEsc = false;           // Charcter escaped
+  char lastEol = 0;             // Last line end char (CR/LF) to swallow CR+LF / LF+CR pairs
   bool isPlusEscaped = false;   // Plus escaped
   bool isRO = false;            // Read only mode flag
   bool isTO = false;            // Talk only mode flag

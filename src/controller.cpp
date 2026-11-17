@@ -110,20 +110,28 @@ uint8_t Controller::parseInput(char c) {
 
   uint8_t r = 0;
 
+  // Line end handling: CR, LF, CR+LF and LF+CR are all accepted as one
+  // line end. If the other line end character follows immediately, it
+  // belongs to the same line end and is discarded.
+  if ((c == CR || c == LF) && !isEsc && lastEol && c != lastEol) {
+    lastEol = 0;
+    return 0;
+  }
+  lastEol = 0;
+
   // Read until buffer full (buffer-size - 2 characters)
   if (pbPtr < PBSIZE) {
     // Actions on specific characters
     switch (c) {
       // Carriage return or newline? Then process the line
       case LF:
-		// just ignore LF for now...
-		break;
       case CR:
         // If escaped just add to buffer
         if (isEsc) {
           addPbuf(c);
           isEsc = false;
         } else {
+          lastEol = c;
           // Carriage return on blank line?
           // Note: for data CR and LF will always be escaped
           if (pbPtr == 0) {
@@ -177,10 +185,11 @@ uint8_t Controller::parseInput(char c) {
         addPbuf(c);
         break;
 	  case BS:
+	  case DEL:  // most terminals send DEL for the backspace key
         if (isEsc) {
           addPbuf(c);
           isEsc = false;
-		} else {
+		} else if (pbPtr > 0) {
 			pbPtr--;
 		}
 		break;
