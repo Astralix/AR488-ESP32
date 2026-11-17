@@ -15,6 +15,7 @@
 #include <WiFi.h>
 #include <esp_system.h>   // esp_read_mac()
 #include <ESPmDNS.h>
+#include <lwip/sockets.h>  // recv() to detect a closed TCP client
 #endif
 
 #if defined(USE_MACROS)
@@ -550,6 +551,19 @@ void Controller::setupWifi()
   WiFi.begin(config.ssid, config.passkey);
 }
 
+/*
+ * True if the TCP client has gone. WiFiClient::connected() notices a reset
+ * but not an orderly close (FIN); that shows as a readable socket with no
+ * data, which a 1-byte peek returns as 0.
+ */
+static bool tcpClientGone(WiFiClient &client)
+{
+  if (!client.connected()) return true;
+  if (client.available() > 0) return false;
+  uint8_t b;
+  return recv(client.fd(), &b, 1, MSG_PEEK | MSG_DONTWAIT) == 0;
+}
+
 void Controller::connectWifi()
 {
   bool connected = (WiFi.status() == WL_CONNECTED);
@@ -581,32 +595,35 @@ void Controller::connectWifi()
       serialstream->println(F("WiFi connection lost, reconnecting..."));
     }
   }
-  if (connected && wifiServerUp) {
-    //check if there are any new clients
-    if (wifiserver.hasClient()) {
-	  if (!serverclient || !serverclient.connected())
-	  {
-		if (serverclient) serverclient.stop();
-		serverclient = wifiserver.available();
-		if (!serverclient)
-		  serialstream->println(F("available broken"));
-		serialstream->print(F("New TCP client: "));
-		serialstream->println(serverclient.remoteIP());
-		tcpstream = (Stream*) &serverclient;
-	  }
-	  else
-	  {
-        //no free/disconnected spot so reject
-        wifiserver.available().stop();
-		tcpstream = NULL;
+  // Release a client that has gone (closed, reset, or WiFi lost), so the
+  // console returns to USB and a new client can connect
+  static unsigned long lastGoneCheck = 0;
+  if (tcpstream != NULL && (!connected || millis() - lastGoneCheck >= 250)) {
+    lastGoneCheck = millis();
+    if (!connected || tcpClientGone(serverclient)) {
+      serverclient.stop();
+      tcpstream = NULL;
+      if (cmdstream == (Stream*)&serverclient) cmdstream = serialstream;
+      serialstream->println(F("TCP client disconnected"));
+    }
+  }
+  if (connected && wifiServerUp && wifiserver.hasClient()) {
+    if (tcpstream == NULL) {
+      serverclient = wifiserver.available();
+      if (serverclient) {
+        serverclient.setNoDelay(true);
+        serialstream->print(F("New TCP client: "));
+        serialstream->println(serverclient.remoteIP());
+        tcpstream = (Stream*) &serverclient;
       }
     } else {
-	  if (!serverclient.connected() && (cmdstream == (Stream*)&serverclient)) {
-		serverclient.stop();
-		// client got disconnected
-		tcpstream = NULL;
-	  }
-	}
+      // Only one client at a time. A running session (e.g. a measurement)
+      // must not be disturbed, so the new connection is refused at once.
+      WiFiClient other = wifiserver.available();
+      serialstream->print(F("TCP client refused, console busy: "));
+      serialstream->println(other.remoteIP());
+      other.stop();
+    }
   }
 }
 
