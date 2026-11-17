@@ -14,6 +14,7 @@
 #ifdef AR488_WIFI_ENABLE
 #include <WiFi.h>
 #include <esp_system.h>   // esp_read_mac()
+#include <ESPmDNS.h>
 #endif
 
 #if defined(USE_MACROS)
@@ -564,6 +565,18 @@ void Controller::connectWifi()
         wifiserver.setNoDelay(true);
         wifiServerUp = true;
       }
+      // (Re)announce <hostname>.local and the telnet console via mDNS;
+      // restarted on every connect so a changed host name takes effect
+      MDNS.end();
+      if (MDNS.begin(wifiHostname())) {
+        MDNS.setInstanceName("AR488 GPIB adapter");
+        MDNS.addService("telnet", "tcp", 23);
+        serialstream->print(F("mDNS name: "));
+        serialstream->print(wifiHostname());
+        serialstream->println(F(".local"));
+      } else {
+        serialstream->println(F("mDNS start failed"));
+      }
     } else {
       serialstream->println(F("WiFi connection lost, reconnecting..."));
     }
@@ -642,6 +655,9 @@ void Controller::statusWifi()
     cmdstream->println(F("connected"));
     cmdstream->print(F("IP:      "));
     cmdstream->println(WiFi.localIP());
+    cmdstream->print(F("mDNS:    "));
+    cmdstream->print(wifiHostname());
+    cmdstream->println(F(".local"));
     cmdstream->print(F("Signal:  "));
     cmdstream->print(WiFi.RSSI());
     cmdstream->print(F(" dBm, channel "));
