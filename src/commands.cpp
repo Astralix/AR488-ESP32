@@ -687,9 +687,9 @@ void Controller::spoll_h(char *params) {
 
 /***** ALLSPOLL 488.2 common protocol *****/
 /*
- * Spoll all the devices given as argument
+ * Spoll the devices given as argument, or all addresses without argument
  *
- * Display the list of status bytes.
+ * Display the list of status bytes as 'addr:status'.
  */
 void Controller::allspoll_h(char *params) {
   spoll(params, 1);
@@ -724,31 +724,42 @@ void Controller::spoll(char *params, int mode) {
     addrs[i] = 0;
   }
 
-  // Read parameters
+  // Read parameters: addresses 0-30 or "all". Without parameters, ++spoll
+  // polls the addressed instrument, ++allspoll and ++findrqs poll all.
+  bool pollAll = (params == NULL) && (mode != 0);
   if (params == NULL) {
-    // No parameters - trigger addressed device only
-    addrs[0] = config.paddr;
-    n_addr = 1;
+    if (!pollAll) {
+      addrs[0] = config.paddr;
+      n_addr = 1;
+    }
   } else {
-    // Read address parameters into array
-    for (param=strtok(params, " \t"), n_addr=0;
-        (param != NULL) && (n_addr < 31);
-        param = strtok(NULL, " \t"), ++n_addr) {
-      if ((strlen(params) < 2) && !(notInRange(param, 0, 30, val))) {
-        addrs[n_addr] = (uint8_t)val;
-      } else {
+    for (param = strtok(params, " \t");
+         (param != NULL) && (n_addr < 31);
+         param = strtok(NULL, " \t")) {
+      if (strcmp(param, "all") == 0) {
+        pollAll = true;
+        continue;
+      }
+      bool digits = (strlen(param) <= 2);
+      for (char *p = param; digits && *p; p++) {
+        digits = isdigit((unsigned char)*p);
+      }
+      if (!digits) {
         errBadCmd();
         if (config.isVerb) cmdstream->println(F("Invalid parameter"));
         return;
       }
+      if (notInRange(param, 0, 30, val)) return;
+      addrs[n_addr++] = (uint8_t)val;
     }
   }
-  if (mode == 0 && n_addr > 1) {
-    // only addr is supported in default spoll mode; secondary addresses are not yet supported
-    errBadCmd();
-    if (config.isVerb) cmdstream->println(F("Invalid parameter"));
-    return;
+  if (pollAll) {
+    // Own address is skipped in the poll loop below
+    for (n_addr = 0; n_addr < 31; n_addr++) addrs[n_addr] = n_addr;
   }
+  // ++spoll with several addresses or "all": report the instrument that
+  // requests service, like ++findrqs
+  if (mode == 0 && n_addr > 1) mode = 2;
 
   if (config.isVerb)
     cmdstream->println(String("Got ") + n_addr + " devices to spoll");
@@ -1501,7 +1512,7 @@ static const char cmdHelp[] PROGMEM = {
   "ver: Display firmware version\n"
   // additional commands
   "== Extension command set ==\n"
-  "allspoll: Serial poll all instruments (alias: ++spoll all)\n"
+  "allspoll: Serial poll instruments, list addr:status (all if none given)\n"
   "findrqs: Find device requesting service\n"
   "findlstn: Find all devices listening on the GPIB bus\n"
   "dcl: Send unaddressed (all) device clear  [power on reset] (is the rst?)\n"
