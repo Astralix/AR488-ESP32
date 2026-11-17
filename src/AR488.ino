@@ -19,7 +19,7 @@
 #include "soc/rtc_cntl_reg.h"
 #endif
 
-/***** FWVER "AR488 GPIB controller, ver. 0.49.14, 02/03/2021" *****/
+/***** FWVER "AR488 GPIB controller, ver. 0.49.15, 17/11/2026" *****/
 
 /*
   Arduino IEEE-488 implementation by John Chajecki
