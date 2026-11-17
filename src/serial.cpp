@@ -15,6 +15,7 @@
 
 #ifdef AR_ESP32S2_USB_CDC
 #include "USB.h"
+#include <esp_system.h>   // esp_read_mac()
 USBCDC UsbCdcSerial;
 #endif
 
@@ -30,6 +31,17 @@ Stream* getSerialStream() {
   if (arSerial == NULL) {
 #if defined(AR_ESP32S2_USB_CDC)
 	arSerial =(Stream*) &(UsbCdcSerial);
+	{
+	  // Unique USB serial number from the last three MAC bytes (matches the
+	  // host name ar488-<MAC>), so that every adapter gets its own
+	  // /dev/serial/by-id/ link instead of all reporting "0"
+	  static char usbSerial[7];
+	  uint8_t mac[6];
+	  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+	  snprintf(usbSerial, sizeof(usbSerial), "%02X%02X%02X", mac[3], mac[4], mac[5]);
+	  USB.serialNumber(usbSerial);
+	  USB.productName("AR488 GPIB-USB");
+	}
 	UsbCdcSerial.begin();
 	USB.begin();
 
