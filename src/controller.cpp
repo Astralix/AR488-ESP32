@@ -408,7 +408,10 @@ void Controller::saveConfig()
 {
 #ifdef ESP32
   Preferences pref;
-  pref.begin("ar488", false);
+  if (!pref.begin("ar488", false)) {
+    cmdstream->println(F("ERROR - Settings could not be saved!"));
+    return;
+  }
   pref.putBool("eot_en", config.eot_en);
   pref.putBool("eoi", config.eoi);
   pref.putBool("isVerb", config.isVerb);
@@ -436,11 +439,11 @@ void Controller::saveConfig()
 #endif
 
   pref.end();
-  if (verbose()) cmdstream->println(F("Settings saved."));
+  cmdstream->println(F("Settings saved."));
 
 #elif defined(E2END)
   epPut(0, config);
-  if (verbose()) cmdstream->println(F("Settings saved."));
+  cmdstream->println(F("Settings saved."));
 
 #else
   cmdstream->println(F("EEPROM not supported."));
