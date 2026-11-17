@@ -1400,6 +1400,28 @@ void Controller::wifi_h(char *params) {
           errBadCmd();
         }
       }
+      else if (strncmp(keyword, "host", 4)==0) {
+        // "auto" restores the default name ar488-<MAC>
+        if (strcmp(datastr, "auto")==0) {
+          memset(config.hostname, '\0', sizeof(config.hostname));
+        } else {
+          // RFC 1123: letters, digits and '-', not starting/ending with '-', max 31 chars here
+          bool valid = (dlen < sizeof(config.hostname)) && datastr[0] != '-' && datastr[dlen-1] != '-';
+          for (uint8_t i = 0; valid && i < dlen; i++) {
+            valid = isalnum((unsigned char)datastr[i]) || datastr[i] == '-';
+          }
+          if (!valid) {
+            if (config.isVerb)
+              cmdstream->println(F("Host name: max. 31 characters a-z, 0-9 and '-', not starting/ending with '-'"));
+            errBadCmd();
+            return;
+          }
+          memset(config.hostname, '\0', sizeof(config.hostname));
+          strncpy(config.hostname, datastr, dlen);
+        }
+        if (config.isVerb)
+          cmdstream->println(F("Host name set. Use ++wifi connect to apply, ++savecfg to keep it."));
+      }
       else if (strncmp(keyword, "pass", 4)==0) {
         if (dlen>0 && dlen<64) {
           memset(config.passkey, '\0', 64);
@@ -1412,7 +1434,7 @@ void Controller::wifi_h(char *params) {
       }
 	  else {
 		if (config.isVerb)
-		  cmdstream->println(F("Invalid keyword ([ssid, pass, connect, scan, status])"));
+		  cmdstream->println(F("Invalid keyword ([ssid, pass, host, connect, scan, status])"));
 	  }
     } else {
       if (strncmp(keyword, "ssid", 6)==0) {
@@ -1420,6 +1442,9 @@ void Controller::wifi_h(char *params) {
       }
       else if (strncmp(keyword, "pass", 4)==0) {
         cmdstream->println(config.passkey);
+      }
+      else if (strncmp(keyword, "host", 4)==0) {
+        cmdstream->println(wifiHostname());
       }
       else if (strncmp(keyword, "connect", 7)==0) {
         setupWifi();
@@ -1432,7 +1457,7 @@ void Controller::wifi_h(char *params) {
       }
 	  else {
 		if (config.isVerb)
-		  cmdstream->println(F("Invalid keyword ([ssid, pass, connect, scan, status])"));
+		  cmdstream->println(F("Invalid keyword ([ssid, pass, host, connect, scan, status])"));
 	  }
     }
   }
@@ -1496,6 +1521,7 @@ static const char cmdHelp[] PROGMEM = {
   "wifi connect: Connect to the configure wifi AP\n"
   "wifi scan: Scan for accessible AP\n"
   "wifi status: Show WiFi connection state, IP address and signal\n"
+  "wifi host: Set or get the network host name ('auto' = ar488-<MAC>)\n"
 #endif
   "xdiag: Bus diagnostics (see the doc)\n"
 };

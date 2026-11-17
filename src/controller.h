@@ -42,6 +42,7 @@ typedef struct {
 #ifdef AR488_WIFI_ENABLE
   char ssid[32];    // max size for WiFiMulti.addAp is 31
   char passkey[64]; // same
+  char hostname[32]; // network host name (empty = default "ar488-<MAC>")
 #endif
 } AR488Conf;
 
@@ -70,6 +71,7 @@ public:
   void connectWifi();
   void scanWifi();
   void statusWifi();
+  const char *wifiHostname();
 #endif
 #if defined (USE_MACROS)
   void displayMacros();

@@ -13,6 +13,7 @@
 
 #ifdef AR488_WIFI_ENABLE
 #include <WiFi.h>
+#include <esp_system.h>   // esp_read_mac()
 #endif
 
 #if defined(USE_MACROS)
@@ -331,7 +332,7 @@ void Controller::resetConfig() {
   // Set default values ({'\0'} sets version string array to null)
   config = {false, false, 2, 0, AR488_DEFAULT_PADDR, 0, 0, 0, 0, 1200, 0, {'\0'}, 0, 0, {'\0'}, 0, 0, false, false
 #ifdef AR488_WIFI_ENABLE
-			,{'\0'}, {'\0'}
+			,{'\0'}, {'\0'}, {'\0'}
 #endif
   };
 }
@@ -372,6 +373,9 @@ void Controller::initConfig()
   }
   if (pref.isKey("passkey")) {
 	pref.getBytes("passkey", config.passkey, sizeof(config.passkey));
+  }
+  if (pref.isKey("hostname")) {
+	pref.getBytes("hostname", config.hostname, sizeof(config.hostname));
   }
 #endif
   pref.end();
@@ -429,6 +433,7 @@ void Controller::saveConfig()
 #ifdef AR488_WIFI_ENABLE
   pref.putBytes("ssid", config.ssid, sizeof(config.ssid));
   pref.putBytes("passkey", config.passkey, sizeof(config.passkey));
+  pref.putBytes("hostname", config.hostname, sizeof(config.hostname));
 #endif
 
   pref.end();
@@ -505,6 +510,17 @@ static const __FlashStringHelper *wifiReasonText(uint8_t reason) {
   }
 }
 
+/***** Network host name: configured name, or "ar488-" + last 3 bytes of the MAC *****/
+const char *Controller::wifiHostname()
+{
+  static char name[32];
+  if (strlen(config.hostname) > 0) return config.hostname;
+  uint8_t mac[6];
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  snprintf(name, sizeof(name), "ar488-%02x%02x%02x", mac[3], mac[4], mac[5]);
+  return name;
+}
+
 /*
  * Start (or restart) the WiFi connection in the background.
  * Does not block: the TCP console server on port 23 is started by
@@ -522,11 +538,12 @@ void Controller::setupWifi()
   wifiLastReason = 0;
   serialstream->print(F("Connecting to WiFi: "));
   serialstream->println(config.ssid);
-  // Restart the station interface so that new settings apply
+  // Restart the station interface so that new settings (incl. host name) apply
   if (WiFi.getMode() != WIFI_OFF) {
     WiFi.disconnect();
     WiFi.mode(WIFI_OFF);
   }
+  WiFi.setHostname(wifiHostname());  // must be set before the interface starts
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.begin(config.ssid, config.passkey);
@@ -613,6 +630,9 @@ void Controller::scanWifi()
 /***** Show WiFi connection state *****/
 void Controller::statusWifi()
 {
+  cmdstream->print(F("Host:    "));
+  cmdstream->print(wifiHostname());
+  cmdstream->println(strlen(config.hostname) ? "" : " (default)");
   cmdstream->print(F("SSID:    "));
   cmdstream->println(strlen(config.ssid) ? config.ssid : "(not set)");
   cmdstream->print(F("Status:  "));
