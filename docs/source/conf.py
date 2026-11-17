@@ -22,7 +22,7 @@ copyright = '2021, Twilight-Logic, 2022 David Douard'
 author = 'Twilight-Logic'
 
 # The full version, including alpha/beta/rc tags
-release = '0.49.14'
+release = '0.49.15'
 
 
 # -- General configuration ---------------------------------------------------

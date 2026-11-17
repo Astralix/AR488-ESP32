@@ -1,2 +1,3 @@
 .pio
 docs/build
+docs/.venv

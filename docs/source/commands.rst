@@ -337,13 +337,16 @@ The configuration written to EEPROM will be automatically re-loaded on power-up.
 configuration can be reset to default using the ++default command and a new
 configuration can be saved using the ``++savecfg`` command.
 
+On ESP32 boards the configuration is stored in the flash memory (NVS) instead, and
+``++savecfg`` always confirms with ``Settings saved.`` (or an error message).
+
 Most, if not all Arduino AVR boards support EEPROM memory, however boards from other
 vendors may not provide this support. If the command is run on a board that does not
 support EEPROM, then the following will be returned: EEPROM not supported.
 
 The ``++savecfg`` command will save the following current parameter values: ``addr``,
 ``auto``, ``eoi``, ``eos``, ``eot_enable``, ``eot_char``, ``mode``, ``read_tmo_ms`` and
-``verstr``; and if supported, ``wifi ssid`` and ``wifi passkey``.
+``verstr``; and if supported, the WiFi SSID, password and host name.
 
 :Modes: controller, device
 :Syntax: ``++savecfg``
@@ -357,9 +360,9 @@ serial poll of the currently addressed instrument. If a GPIB address is specifie
 a serial poll of the instrument at the specified address is performed. The command
 returns a single 8-bit decimal number representing the status byte of the instrument.
 
-The command can also be used to serial poll multiple instruments. Up to 15 addresses can
-be specified. If the all parameter is specified (or the command ``++aspoll`` is used),
-then a serial poll of all 30 primary instrument addresses is performed.
+The command can also be used to serial poll multiple instruments: several addresses
+can be given, or ``all`` to poll all addresses 0 to 30. (``++allspoll`` polls the same
+way but returns the status byte of every instrument.)
 
 When polling multiple addresses, the ``++spoll`` command will return the address and
 status byte of the first instrument it encounters that has the ``RQS`` bit set in its
@@ -367,7 +370,8 @@ status byte, indicating that it has requested service. The format of the respons
 ``SRQ:addr,status``, for example: ``SRQ:3,88`` where 3 is the GPIB address of the
 instrument and 88 is the status byte. The response provides a means to poll a number of
 instruments and to identify which instrument raised the service request, all in one
-command. If ``SRQ`` was not asserted then no response will be returned.
+command. If no instrument requests service, an empty line is returned. This is the
+same as ``++findrqs``.
 
 When ``++srqauto`` is set to 1 (for details see the ``++srqauto`` custom command), the
 interface will automatically conduct a serial poll of all devices on the GPIB bus
@@ -460,10 +464,17 @@ with the parameter ``real`` will always display the original AR488 version strin
 Custom commands
 ---------------
 
-``++aspoll``
+``++allspoll``
 ++++++++++++++
 
-Alias equivalent to ``++spoll all``. See ``++spoll`` for further details.
+Serial poll the instruments at the given addresses and return their status bytes as a
+list of ``address:status`` pairs, for example ``17:0 18:64``. Addresses without an
+instrument are left out. Without an address (or with ``all``), all addresses 0 to 30
+are polled; each empty address waits up to ``read_tmo_ms``, so set a short timeout
+first (for example ``++read_tmo_ms 200``).
+
+:Modes: controller
+:Syntax: ``++allspoll [all|<PAD1> <PAD2> ...]``
 
 ``++dcl``
 +++++++++
@@ -545,6 +556,30 @@ port for onward transmission to the host computer.
 
 :Modes: controller
 :Syntax: ``++eor[0-9]``
+
+``++findlstn``
+++++++++++++++
+
+List the addresses of all instruments that respond as listeners on the bus. Every
+address from 0 to 30 is tried, waiting up to ``read_tmo_ms`` for each, so set a short
+timeout first (for example ``++read_tmo_ms 200``). Secondary addresses are not
+searched.
+
+:Modes: controller
+:Syntax: ``++findlstn``
+:Returns: the addresses found, separated by spaces, e.g. ``17 18``
+
+``++findrqs``
++++++++++++++
+
+Find the instrument that requests service (asserts SRQ): the instruments at the given
+addresses are serial polled, and the first one with the RQS bit set in its status
+byte is reported. Without an address (or with ``all``), all addresses 0 to 30 are
+polled. If no instrument requests service, an empty line is returned.
+
+:Modes: controller
+:Syntax: ``++findrqs [all|<PAD1> <PAD2> ...]``
+:Returns: ``SRQ:<address>,<status byte>``
 
 ``++id``
 ++++++++
@@ -654,6 +689,17 @@ question.
 :Modes: controller
 :Syntax: ``++ppoll``
 
+
+``++prompt``
+++++++++++++
+
+Show a prompt (``>``) when the interface is ready for the next command. Useful in an
+interactive terminal session; keep it off for programs. Without a parameter, the
+current setting is shown.
+
+:Modes: controller, device
+:Syntax: ``++prompt [0|1]``
+         where 0=off; 1=on
 
 ``++ren``
 +++++++++
@@ -800,3 +846,51 @@ Toggle verbose mode ON and OFF
 
 :Modes: controller, device
 :Syntax: ``++verbose``
+
+``++wifi``
+++++++++++
+
+Configure and check the WiFi connection (ESP32 boards built with
+``AR488_WIFI_ENABLE``). ``++savecfg`` stores SSID, password and host name; the adapter
+then connects at every power-on and reconnects on its own.
+
+``++wifi`` or ``++wifi status``
+   Show host name, SSID, connection state, IP address, mDNS name, signal strength,
+   telnet client, MAC address and, if not connected, the reason of the last failure.
+
+``++wifi scan``
+   List the WiFi networks in range with signal strength and channel; ``*`` marks
+   encrypted networks.
+
+``++wifi ssid [name]``
+   Set the network name (max. 31 characters). Without a value, show it.
+
+``++wifi pass [password]``
+   Set the password (8 to 63 printable characters). Without a value, only ``set`` or
+   ``not set`` is returned – the password itself is never shown. It is stored
+   unencrypted in flash.
+
+``++wifi host [name|auto]``
+   Set the host name used for DHCP and mDNS (max. 31 characters ``a-z``, ``0-9``,
+   ``-``, not starting or ending with ``-``). ``auto`` returns to the default
+   ``ar488-`` followed by the last six digits of the MAC address. Without a value,
+   show the current name. The adapter answers to ``<host name>.local`` via mDNS.
+
+``++wifi connect``
+   (Re)connect with the current settings, for example after changing SSID, password
+   or host name.
+
+:Modes: controller, device
+:Syntax: ``++wifi [status|scan|connect]``, ``++wifi ssid [name]``,
+         ``++wifi pass [password]``, ``++wifi host [name|auto]``
+
+``++xdiag``
++++++++++++
+
+Bus diagnostics: set the data or control lines of the GPIB bus to a given value for
+10 seconds, so they can be checked with a meter or logic probe. See
+:ref:`XDIAG command notes` for the line values.
+
+:Modes: controller, device
+:Syntax: ``++xdiag <mode> <value>``
+         where mode 0=data bus, 1=control bus; value=0 to 255

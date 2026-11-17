@@ -1,4 +1,4 @@
-.. _Compilation
+.. _Configuration:
 
 Compilation
 ===========
@@ -35,7 +35,7 @@ Possible variables are:
   communication protocol.
 
 - ``USE_MACROS``: enable support for run-time configurable macros (see
-  :ref:`macos`_)
+  :ref:`macros`)
 
 - ``HAS_HELP_COMMAND``: enable support for the ``++help`` command; on limited
   boards (like some AVR boards), this can consume too much storage memory and

@@ -152,50 +152,25 @@ board's section like:
        -D REN=12  -D IFC=13  -D NDAC=22  -D NRFD=19
        -D DAV=23  -D EOI=18  -D ATN=5    -D SRQ=2
 
-The configuration of the Wifi connection credentials is made using the `++wifi` commands
-from the main serial connection:
+The WiFi connection is set up once over the USB console:
 
-
-.. code-block:: bash
-
-   $ pio device monitor -p /dev/ttyUSB0 -b 115200 --echo
-   > ++wifi scan
-   scan done
-   1 networks found
-   1: My-AP (-57)*
+.. code-block:: text
 
    > ++wifi ssid My-AP
-   > ++wifi passkey mypassphrase
+   > ++wifi pass mypassphrase
    > ++wifi connect
-   Connecting to Wifi: My-AP
-   [E][WiFiMulti.cpp:187] run(): [WIFI] Connecting Failed (6).
-   10
-   9
-   8
+   Connecting to WiFi: My-AP
+   WiFi connected, IP address: 192.168.1.22
+   mDNS name: ar488-f1b5ce.local
+   > ++savecfg
+   Settings saved.
 
-   WiFi connected IP address: 192.168.1.22
-   >
+The adapter then connects by itself at every power-on, and its console is reachable
+on TCP port 23, e.g. ``telnet ar488-f1b5ce.local 23``.
 
-Once connected, you can access the AR488 using a simple telnet connection on the port
-23:
-
-.. code-block:: bash
-
-   $ telnet 192.168.1.22 23
-   Trying 192.168.1.22...
-   Connected to 192.168.1.22.
-   Escape character is '^]'.
-   > ++addr
-   9
-   > *idn?
-   HEWLETT-PACKARD,34970A,0,8-1-2
-
-
-You can save te wifi connection credentials in the EEPROM using the `++savecfg` command.
-
-Note that the AR488 will not connect by default to the wifi on startup. If you want the
-AR488 to automatically connect to the wifi, add the `++wifi connect` command in the
-`Macro 0` (see :ref:`macros` for more details).
+Network scan, connection status, host name, mDNS and troubleshooting are described in
+the :ref:`WiFi setup` chapter of the User Manual; all ``++wifi`` commands are listed
+in the :ref:`Command Reference`.
 
 Serial over IP
 ==============

@@ -1,3 +1,5 @@
+.. _XDIAG command notes:
+
 =====================
  XDIAG command notes
 =====================

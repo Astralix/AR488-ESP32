@@ -1,7 +1,12 @@
-.. _quickstart
+.. _quickstart:
 
 Quickstart
 ==========
+
+.. note::
+
+   For the AR488-ESP32 Rev5 board, the :ref:`User Manual` is the better starting
+   point. This chapter shows the general use with any supported board.
 
 The idea of the Prologix serial communication protocol is to use a special
 syntax for control commands of the AR488-ESP32 interface. All other
@@ -12,7 +17,7 @@ Any received data stream from the adressed device will be similarly sent the
 computer host's serial interface.
 
 The complete list of special `++` commands is described in the next
-:ref:commands_ section.
+:ref:`Command Reference` section.
 
 Note that the AR488-ESP32 will not echo characters received from the serial
 line. So when using the device in an interactive session, make sure to enable
@@ -36,40 +41,7 @@ In the example above one can see the prompt has been activated, which is useful
 for an interactive session (but you probably do not want that for automated
 control).
 
-Wifi configuration can be done as well:
-
-.. code-block::
-
-   > ++wifi scan
-   scan done
-   17 networks found
-   1: my-ssid (-55)*
-   2: freebox_IDS (-74)*
-   3: FreeWifi_secure (-75)*
-   4: Livebox-C6A0 (-81)*
-   5: SFR_B828 (-82)*
-   6: SFR WiFi Mobile (-85)*
-   7: SFR_83B0 (-85)*
-   8: Bbox-D0AB3948 (-86)*
-   9: SFR WiFi FON (-87)
-   10: Leo Italie (-90)*
-   11: Bbox-A147AE6B (-90)*
-   12: SFR_4890 (-91)*
-   13: WAAZZZAAAAAAA (-91)*
-   14: FreeWifi_secure (-91)*
-   15: Bbox-298EAC90 (-92)*
-   16: SM (-93)*
-   17: FreeWifi_secure (-95)*
-   > ++wifi ssid my-ssid
-   my-ssid
-   > ++wifi passkey my-strong-wifi-password
-   > ++wifi connect
-   Connecting to Wifi: my-ssid
-
-   WiFi connected IP address: 192.168.1.164
-   > ++savecfg
-   >
-
+WiFi is set up with the ``++wifi`` commands, see :ref:`WiFi setup`.
 
 Now let's see available devices on the bus (note that older devices may not be
 detected):

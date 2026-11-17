@@ -31,13 +31,16 @@ The interface firmware can optionally support the
 circuits.
 
 Details of construction and the mapping of board pins to GPIB control signals
-and the data bus are explained in the :ref:`Building an AR488-ESP32 GPIB Interface`
+and the data bus are explained in the :ref:`Building an AR488 GPIB Interface`
 section.
 
 The interface firmware supports standard Prologix_ commands and adheres closely
 to the Prologix syntax but there are some minor differences and a number of
 additopnal commands. Details of all commands can be found in the :ref:`Command
 Reference` section.
+
+Users of the AR488-ESP32 Rev5 board start with the :ref:`User Manual`; it covers
+setup over USB and WiFi, everyday use and troubleshooting for that board.
 
 .. _Arduino: https://arduino.cc
 .. _Uno: https://store.arduino.cc/products/arduino-uno-rev3
@@ -218,6 +221,7 @@ be found in the :ref:`Remote Connection` section.
    :maxdepth: 2
    :caption: Contents:
 
+   user-manual
    configuration
    quickstart
    commands
