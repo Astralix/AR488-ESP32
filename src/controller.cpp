@@ -314,9 +314,14 @@ void Controller::reset() {
 #endif
 }
 
+// Default GPIB address of the instrument to talk to (override with -D AR488_DEFAULT_PADDR=n)
+#ifndef AR488_DEFAULT_PADDR
+#define AR488_DEFAULT_PADDR 1
+#endif
+
 void Controller::resetConfig() {
   // Set default values ({'\0'} sets version string array to null)
-  config = {false, false, 2, 0, 1, 0, 0, 0, 0, 1200, 0, {'\0'}, 0, 0, {'\0'}, 0, 0, false, false
+  config = {false, false, 2, 0, AR488_DEFAULT_PADDR, 0, 0, 0, 0, 1200, 0, {'\0'}, 0, 0, {'\0'}, 0, 0, false, false
 #ifdef AR488_WIFI_ENABLE
 			,{'\0'}, {'\0'}
 #endif
