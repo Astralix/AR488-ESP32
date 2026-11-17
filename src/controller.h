@@ -9,7 +9,6 @@
 
 #ifdef AR488_WIFI_ENABLE
 #include <WiFi.h>
-#include <WiFiMulti.h>
 #endif
 
 class GPIB;
@@ -70,6 +69,7 @@ public:
   void setupWifi();
   void connectWifi();
   void scanWifi();
+  void statusWifi();
 #endif
 #if defined (USE_MACROS)
   void displayMacros();
@@ -87,9 +87,9 @@ public:
 
 private:
 #ifdef AR488_WIFI_ENABLE
-  WiFiMulti wifimulti;
   WiFiServer wifiserver;
   WiFiClient serverclient;
+  bool wifiServerUp = false;   // TCP console server started
 #endif
 
 /***** PARSE BUFFERS *****/

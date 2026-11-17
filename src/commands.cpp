@@ -1381,6 +1381,10 @@ void Controller::wifi_h(char *params) {
   char * datastr; // Pointer to supplied data (remaining characters in buffer)
   char serialStr[10];
 
+  if (params == NULL) {   // ++wifi without keyword: show status
+    statusWifi();
+    return;
+  }
   if (params != NULL) {
     keyword = strtok(params, " \t");
     datastr = keyword + strlen(keyword) + 1;
@@ -1408,7 +1412,7 @@ void Controller::wifi_h(char *params) {
       }
 	  else {
 		if (config.isVerb)
-		  cmdstream->println(F("Invalid keyword ([ssid, pass, connect, scan])"));
+		  cmdstream->println(F("Invalid keyword ([ssid, pass, connect, scan, status])"));
 	  }
     } else {
       if (strncmp(keyword, "ssid", 6)==0) {
@@ -1423,9 +1427,12 @@ void Controller::wifi_h(char *params) {
       else if (strncmp(keyword, "scan", 4)==0) {
         scanWifi();
       }
+      else if (strncmp(keyword, "status", 6)==0) {
+        statusWifi();
+      }
 	  else {
 		if (config.isVerb)
-		  cmdstream->println(F("Invalid keyword ([ssid, pass, connect, scan])"));
+		  cmdstream->println(F("Invalid keyword ([ssid, pass, connect, scan, status])"));
 	  }
     }
   }
@@ -1488,6 +1495,7 @@ static const char cmdHelp[] PROGMEM = {
   "wifi passkey: Set or get the wifi passphrase (63 chars max)\n"
   "wifi connect: Connect to the configure wifi AP\n"
   "wifi scan: Scan for accessible AP\n"
+  "wifi status: Show WiFi connection state, IP address and signal\n"
 #endif
   "xdiag: Bus diagnostics (see the doc)\n"
 };

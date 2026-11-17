@@ -13,7 +13,6 @@
 
 #ifdef AR488_WIFI_ENABLE
 #include <WiFi.h>
-#include <WiFiMulti.h>
 #endif
 
 #if defined(USE_MACROS)
@@ -95,7 +94,7 @@
 Controller::Controller():
 	serialstream(NULL), btstream(NULL), tcpstream(NULL)
 #ifdef AR488_WIFI_ENABLE
-	, wifimulti(), wifiserver(23), serverclient()
+	, wifiserver(23), serverclient()
 #endif
 {
   serialstream = getSerialStream();
@@ -369,10 +368,10 @@ void Controller::initConfig()
   }
 #ifdef AR488_WIFI_ENABLE
   if (pref.isKey("ssid")) {
-	pref.getBytes("ssid", config.ssid, 64);
+	pref.getBytes("ssid", config.ssid, sizeof(config.ssid));
   }
   if (pref.isKey("passkey")) {
-	pref.getBytes("passkey", config.passkey, 64);
+	pref.getBytes("passkey", config.passkey, sizeof(config.passkey));
   }
 #endif
   pref.end();
@@ -386,12 +385,6 @@ void Controller::initConfig()
   }
 #endif
 
-  /*
-#ifdef AR488_WIFI_ENABLE
-  if (strlen(config.ssid) > 0)
-	setupWifi();
-#endif
-  */
   // Initialize the interface in device mode
   if (config.cmode == 1)
 	gpib->initDevice();
@@ -434,8 +427,8 @@ void Controller::saveConfig()
   pref.putBytes("sname", config.sname, 16);
 
 #ifdef AR488_WIFI_ENABLE
-  pref.putBytes("ssid", config.ssid, 64);
-  pref.putBytes("passkey", config.passkey, 64);
+  pref.putBytes("ssid", config.ssid, sizeof(config.ssid));
+  pref.putBytes("passkey", config.passkey, sizeof(config.passkey));
 #endif
 
   pref.end();
@@ -492,38 +485,73 @@ void Controller::execCmd()
 }
 
 #ifdef AR488_WIFI_ENABLE
+// Reason code of the last failed/lost WiFi connection (0 = none)
+static volatile uint8_t wifiLastReason = 0;
+
+static void onWifiDisconnected(WiFiEvent_t event, WiFiEventInfo_t info) {
+  wifiLastReason = info.wifi_sta_disconnected.reason;
+}
+
+static const __FlashStringHelper *wifiReasonText(uint8_t reason) {
+  switch (reason) {
+    case WIFI_REASON_NO_AP_FOUND:            return F("SSID not found (out of range or 5 GHz only?)");
+    case WIFI_REASON_AUTH_FAIL:
+    case WIFI_REASON_AUTH_EXPIRE:
+    case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
+    case WIFI_REASON_HANDSHAKE_TIMEOUT:      return F("authentication failed (wrong password?)");
+    case WIFI_REASON_ASSOC_FAIL:             return F("association failed");
+    case WIFI_REASON_BEACON_TIMEOUT:         return F("connection lost (signal too weak?)");
+    default:                                 return F("connection failed");
+  }
+}
+
+/*
+ * Start (or restart) the WiFi connection in the background.
+ * Does not block: the TCP console server on port 23 is started by
+ * connectWifi() as soon as the connection is up, and the ESP32 WiFi
+ * stack reconnects automatically if the access point goes away.
+ */
 void Controller::setupWifi()
 {
-  if (strlen(config.ssid) > 0)
-  {
-	serialstream->print(F("Connecting to Wifi: "));
-	serialstream->println(config.ssid);
-	wifimulti.addAP(config.ssid, config.passkey);
-
-	for (int loops = 10; loops > 0; loops--) {
-    if (wifimulti.run() == WL_CONNECTED) {
-      serialstream->println("");
-      serialstream->print(F("WiFi connected "));
-      serialstream->print(F("IP address: "));
-      serialstream->println(WiFi.localIP());
-	  wifiserver.begin();
-	  wifiserver.setNoDelay(true);
-      break;
-    } else {
-      serialstream->println(loops);
-      delay(1000);
-    }
-	}
-  if (wifimulti.run() != WL_CONNECTED) {
-    serialstream->println(F("WiFi connect failed"));
-    delay(1000);
+  if (strlen(config.ssid) == 0) return;
+  static bool eventRegistered = false;
+  if (!eventRegistered) {
+    WiFi.onEvent(onWifiDisconnected, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+    eventRegistered = true;
   }
+  wifiLastReason = 0;
+  serialstream->print(F("Connecting to WiFi: "));
+  serialstream->println(config.ssid);
+  // Restart the station interface so that new settings apply
+  if (WiFi.getMode() != WIFI_OFF) {
+    WiFi.disconnect();
+    WiFi.mode(WIFI_OFF);
   }
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.begin(config.ssid, config.passkey);
 }
 
 void Controller::connectWifi()
 {
-  if (WiFi.status() == WL_CONNECTED) {
+  bool connected = (WiFi.status() == WL_CONNECTED);
+  static bool wasConnected = false;
+  if (connected != wasConnected) {
+    wasConnected = connected;
+    if (connected) {
+      wifiLastReason = 0;
+      serialstream->print(F("WiFi connected, IP address: "));
+      serialstream->println(WiFi.localIP());
+      if (!wifiServerUp) {
+        wifiserver.begin();
+        wifiserver.setNoDelay(true);
+        wifiServerUp = true;
+      }
+    } else {
+      serialstream->println(F("WiFi connection lost, reconnecting..."));
+    }
+  }
+  if (connected && wifiServerUp) {
     //check if there are any new clients
     if (wifiserver.hasClient()) {
 	  if (!serverclient || !serverclient.connected())
@@ -554,27 +582,64 @@ void Controller::connectWifi()
 
 void Controller::scanWifi()
 {
-
+  // Scanning needs the station interface, which is off if no SSID is configured
+  if (WiFi.getMode() == WIFI_OFF) WiFi.mode(WIFI_STA);
+  cmdstream->println(F("Scanning..."));
   int n = WiFi.scanNetworks();
-  serialstream->println("scan done");
-  if (n == 0) {
-	serialstream->println("no networks found");
-  } else {
-	serialstream->print(n);
-	serialstream->println(" networks found");
-	for (int i = 0; i < n; ++i) {
-	  // Print SSID and RSSI for each network found
-	  serialstream->print(i + 1);
-	  serialstream->print(": ");
-	  serialstream->print(WiFi.SSID(i));
-	  serialstream->print(" (");
-	  serialstream->print(WiFi.RSSI(i));
-	  serialstream->print(")");
-	  serialstream->println((WiFi.encryptionType(i) == WIFI_AUTH_OPEN)?" ":"*");
-	  delay(10);
-	}
+  if (n < 0) {
+    cmdstream->println(F("Scan failed (connection attempt in progress? try again)"));
+    return;
   }
-  serialstream->println("");
+  if (n == 0) {
+    cmdstream->println(F("No networks found"));
+    return;
+  }
+  cmdstream->print(n);
+  cmdstream->println(F(" networks found (* = encrypted):"));
+  for (int i = 0; i < n; ++i) {
+    cmdstream->print(i + 1);
+    cmdstream->print(F(": "));
+    cmdstream->print(WiFi.SSID(i));
+    cmdstream->print(F(" ("));
+    cmdstream->print(WiFi.RSSI(i));
+    cmdstream->print(F(" dBm, ch "));
+    cmdstream->print(WiFi.channel(i));
+    cmdstream->print(F(")"));
+    cmdstream->println((WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? "" : " *");
+  }
+  WiFi.scanDelete();
+}
+
+/***** Show WiFi connection state *****/
+void Controller::statusWifi()
+{
+  cmdstream->print(F("SSID:    "));
+  cmdstream->println(strlen(config.ssid) ? config.ssid : "(not set)");
+  cmdstream->print(F("Status:  "));
+  if (strlen(config.ssid) == 0) {
+    cmdstream->println(F("off - set ++wifi ssid / ++wifi pass, then ++wifi connect"));
+  } else if (WiFi.status() == WL_CONNECTED) {
+    cmdstream->println(F("connected"));
+    cmdstream->print(F("IP:      "));
+    cmdstream->println(WiFi.localIP());
+    cmdstream->print(F("Signal:  "));
+    cmdstream->print(WiFi.RSSI());
+    cmdstream->print(F(" dBm, channel "));
+    cmdstream->println(WiFi.channel());
+    cmdstream->print(F("Telnet:  port 23, "));
+    cmdstream->println(serverclient.connected() ? F("client connected") : F("no client"));
+  } else {
+    cmdstream->println(F("not connected, retrying"));
+    if (wifiLastReason) {
+      cmdstream->print(F("Reason:  "));
+      cmdstream->print(wifiReasonText(wifiLastReason));
+      cmdstream->print(F(" [code "));
+      cmdstream->print(wifiLastReason);
+      cmdstream->println(F("]"));
+    }
+  }
+  cmdstream->print(F("MAC:     "));
+  cmdstream->println(WiFi.macAddress());
 }
 #endif
 
