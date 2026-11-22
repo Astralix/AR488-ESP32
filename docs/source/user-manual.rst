@@ -329,6 +329,34 @@ console it came from: whichever console sent the last line gets the answers, and
 other one is told ``Moving serial console to TCP`` (or ``serial``). Do not let two
 programs use USB and the network at the same time.
 
+Speed of long answers
+---------------------
+
+Since firmware 0.49.16 the adapter collects the bytes it reads from the bus and sends
+them to the console in blocks of up to 256 bytes. Before, every byte went out as a
+TCP packet of its own (the console runs with *no delay*, so that short answers are not
+held back). Over WiFi that cost about 4 ms per byte, about 270 bytes per second.
+
+Measured with an R&S FSIQ 7 on the bus, over WiFi:
+
+=====================================  ===========  ===========
+Answer                                 0.49.15      0.49.16
+=====================================  ===========  ===========
+``TRAC? TRACE1`` (500 values, 9 kB)    33 s         0.27 s
+``*IDN?`` (38 bytes)                   0.5 s        0.02 s
+=====================================  ===========  ===========
+
+Nothing changes for the program on the other side: the answer arrives in larger
+pieces, but byte for byte the same, still followed by the EOT character if
+``++eot_enable`` is on. Over USB the effect is smaller, because the USB port already
+collected the bytes.
+
+While it reads, the adapter looks for a new command line from the console only
+after every 64 bytes (each look is a call into the network stack). A command sent to
+end a long read with ``++auto 3`` therefore takes effect at the next 64-byte step, not
+at once. For a program that leaves too long a timeout this hardly matters: the read
+ends at EOI or at the end character as before.
+
 NI-VISA and other VISA libraries
 --------------------------------
 
@@ -600,8 +628,11 @@ tell it not to reset the chip (``--before no_reset``):
    A separately installed esptool (``pip install esptool``, command ``esptool``)
    works the same way.
 
-4. Press **RESET** (or unplug and replug the adapter). It starts the new firmware
-   and appears again under its own ``/dev/serial/by-id/`` name.
+4. esptool resets the chip after writing (``--after hard_reset`` is its default), and
+   the adapter starts the new firmware on its own; it appears again under its own
+   ``/dev/serial/by-id/`` name after a few seconds. This is what happened on all five
+   adapters updated on 2026-11-23. If it does not come back, press **RESET** (or unplug
+   and replug it).
 
 The settings in flash (NVS), including the WiFi data, are not touched by this.
 Writing ``boot_app0.bin`` makes the adapter start from ``app0`` again, even if it

@@ -279,6 +279,11 @@ Timeout is set using the read_tmo_ms command and is the maximum permitted delay 
 single character to be read. It is not related to the time taken to read all of the
 data. For details see the description of the ``read_tmo_ms`` command.
 
+On the ESP32 boards (firmware 0.49.16 and later) the data read is passed to the
+console in blocks of up to 256 bytes instead of byte by byte, which makes long answers
+over WiFi about 100 times faster. The data itself is unchanged. While reading, a new
+command line from the console is noticed at the next 64-byte step.
+
 :Modes: controller
 :Syntax: ``++read [eoi|<char>]``
 		 where <char> is a decimal number corresponding to the ASCII character to be used
@@ -664,6 +669,35 @@ See the :ref:`macros` section for more details on how to use this command.
 :Modes: controller
 :Syntax: ``++macro [1-9] [set|del]``
 
+
+``++ota``
++++++++++
+
+Update the firmware over the network (ESP32 boards built with ``AR488_WIFI_ENABLE``).
+The adapter fetches the image itself by HTTP from the given URL, writes it into the
+firmware slot that is not running (``app0`` or ``app1``) and restarts from it. The
+WiFi connection must be up. Only ``firmware.bin`` of a build is accepted, and only
+over ``http://``.
+
+If the server cannot be reached or the download breaks off, the answer is
+``OTA failed: <reason>`` and the running firmware stays as it is. The old firmware
+remains in the other slot until the next update.
+
+Without a URL, the command shows the slot the adapter is running from and the
+firmware version.
+
+The image is not authenticated: anyone who can send commands to the adapter can load
+firmware into it. See :ref:`Updating the Firmware` in the user manual for the whole
+procedure.
+
+:Modes: controller, device
+:Syntax: ``++ota [http://<host>[:<port>]/<path>/firmware.bin]``
+
+Example::
+
+   ++ota http://192.168.5.61:8016/firmware.bin
+   OTA: fetching http://192.168.5.61:8016/firmware.bin
+   OTA: done, restarting
 
 ``++ppoll``
 +++++++++++
