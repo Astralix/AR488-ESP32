@@ -43,6 +43,7 @@ typedef struct {
   char ssid[32];    // max size for WiFiMulti.addAp is 31
   char passkey[64]; // same
   char hostname[32]; // network host name (empty = default "ar488-<MAC>")
+  char otapass[64];  // password of the web update page (empty = default "ar488-<MAC>")
 #endif
 } AR488Conf;
 
@@ -72,6 +73,7 @@ public:
   void scanWifi();
   void statusWifi();
   const char *wifiHostname();
+  const char *otaPassword();
 #endif
 #if defined (USE_MACROS)
   void displayMacros();

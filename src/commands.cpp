@@ -1404,6 +1404,31 @@ void Controller::ota_h(char *params) {
     cmdstream->println(F(FWVER));
     return;
   }
+  // ++ota pass [password|auto]: password of the web update page (auto = ar488-<MAC>)
+  if (strncmp(params, "pass", 4) == 0 && (params[4] == 0 || params[4] == ' ')) {
+    char *pw = params + 4;
+    while (*pw == ' ') pw++;
+    size_t n = strlen(pw);
+    if (n == 0) {
+      cmdstream->println(config.otapass[0] ? F("set") : F("default"));  // never show an own one
+    } else if (strcmp(pw, "auto") == 0) {
+      memset(config.otapass, '\0', sizeof(config.otapass));
+      if (config.isVerb) cmdstream->println(F("Update password back to default ar488-<MAC>. ++savecfg to keep it."));
+    } else {
+      bool valid = (n >= 8 && n < sizeof(config.otapass));
+      for (size_t i = 0; valid && i < n; i++) valid = (pw[i] >= 32 && pw[i] <= 126);
+      if (valid) {
+        memset(config.otapass, '\0', sizeof(config.otapass));
+        strncpy(config.otapass, pw, n);
+        if (config.isVerb) cmdstream->println(F("Update password set. ++savecfg to keep it."));
+      } else {
+        if (config.isVerb) cmdstream->println(F("Password must be 8-63 printable characters!"));
+        errBadCmd();
+      }
+      memset(pw, '\0', n);  // do not leave the password in the command buffer
+    }
+    return;
+  }
   if (WiFi.status() != WL_CONNECTED) {
     cmdstream->println(F("OTA: WiFi not connected"));
     return;
@@ -1595,6 +1620,7 @@ static const char cmdHelp[] PROGMEM = {
   "verbose: Verbose (human readable) mode\n"
 #ifdef AR488_WIFI_ENABLE
   "ota: Show the running partition and version; ota <url>: update the firmware from http://<url> (firmware.bin)\n"
+  "ota pass: Set the password of the web update page (8-63 chars, auto = ar488-<MAC>); query shows set/default\n"
   "wifi ssid: Set or get the wifi SSID (31 chars max)\n"
   "wifi pass: Set the wifi passphrase (8-63 chars); query shows only set/not set\n"
   "wifi connect: Connect to the configure wifi AP\n"
