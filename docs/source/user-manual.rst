@@ -82,7 +82,7 @@ Example with picocom (``-c`` shows what you type):
 Type ``++ver`` and Enter. The adapter replies with its version::
 
    ++ver
-   AR488 GPIB controller, ver. 0.49.15, 17/11/2026
+   AR488 GPIB controller, ver. 0.49.16, 22/11/2026
 
 Leave picocom with :kbd:`Ctrl-A` :kbd:`Ctrl-X`. On Windows, PuTTY or Tera Term work
 the same way.
@@ -388,7 +388,8 @@ Instrument communication
 ``++auto [0-3]``        automatic read: 0 off, 1 after every command, 2 after queries,
                         3 continuous
 ``++read [eoi|char]``   read the instrument's answer (until EOI / the given character)
-``++read_tmo_ms [ms]``  read timeout, 1–3000 ms
+``++read_tmo_ms [ms]``  read timeout, 1–32000 ms; larger values are rejected
+                        (``Unrecognized command``)
 ``++eos [0-3]``         characters appended when sending to the instrument
 ``++eor [0-7]``         characters that end an answer from the instrument
 ``++eoi [0|1]``         assert EOI with the last byte sent
@@ -448,6 +449,9 @@ WiFi
                                 query only answers ``set``/``not set``
 ``++wifi host [name|auto]``     **new:** show/set the host name
 ``++wifi connect``              connect now with the current settings
+``++ota [url]``                 **new:** without argument: running partition and
+                                version; with an ``http://`` URL: update the
+                                firmware over WiFi (see `Updating over WiFi`_)
 ==============================  ===================================================
 
 .. note::
@@ -499,27 +503,118 @@ Troubleshooting
 Updating the Firmware
 =====================
 
-The firmware is built and flashed with PlatformIO:
+There are two ways to install new firmware: over WiFi with ``++ota`` (no cable, the
+adapter can stay in the rack), or over USB with ``esptool``. Both keep the saved
+settings, including the WiFi data. ``++ver`` shows the installed version afterwards.
+
+Build the firmware first:
 
 .. code-block:: bash
 
-   pio run -e AR488-ESP32-Rev5 -t upload --upload-port /dev/ttyACM0
+   pio run -e AR488-ESP32-Rev5
 
-Close all terminal programs on the port first. PlatformIO switches the adapter into
-update mode by itself (by briefly opening the port at 1200 baud). Saved settings,
-including WiFi, are kept.
+The images are then in ``.pio/build/AR488-ESP32-Rev5/``.
 
-In update mode the adapter reports itself as a plain ``ESP32-S2`` with serial number
-``0``, so its ``/dev/serial/by-id/`` link disappears while flashing. With several
-adapters connected, select the adapter by its USB socket instead, for example
-``--upload-port /dev/serial/by-path/pci-0000:00:14.0-usb-0:1.4.2:1.0``
-(``ls -l /dev/serial/by-path/`` lists them).
+Updating over WiFi
+------------------
 
-If the adapter was put into update mode by hand (BOOT button held while pressing
-RESET), it does not restart by itself after flashing: press RESET once.
+The flash memory holds two firmware slots (``app0`` and ``app1``). ``++ota`` loads a
+new image into the slot that is not running and restarts from it. The adapter
+fetches the image itself by HTTP, so any web server on a PC it can reach will do; no
+port on the adapter is opened for this, and it also works across subnets.
 
-``++ver`` shows the installed firmware version.
+1. Serve the build directory, for example with Python on the PC (any free port):
 
-If the adapter does not respond at all, start update mode by hand: hold **BOOT**,
-press and release **RESET**, release **BOOT**. The adapter then appears as
-"ESP32-S2" and can be flashed. Press **RESET** after flashing.
+   .. code-block:: bash
+
+      cd .pio/build/AR488-ESP32-Rev5
+      python3 -m http.server 8016
+
+2. Give the adapter the URL of ``firmware.bin`` (on USB or the telnet console)::
+
+      ++ota http://192.168.5.61:8016/firmware.bin
+      OTA: fetching http://192.168.5.61:8016/firmware.bin
+      OTA: done, restarting
+
+   Loading takes about 5 seconds. The adapter then restarts with the new firmware
+   and reconnects to WiFi; a telnet session is closed by the restart and has to be
+   opened again.
+
+3. Check the result::
+
+      ++ota
+      running from app1, AR488 GPIB controller, ver. 0.49.16, 22/11/2026
+
+Only ``http://`` URLs are accepted (no ``https://``), and the adapter must be
+connected to WiFi. Give it ``firmware.bin`` only – not ``bootloader.bin``,
+``partitions.bin`` or a merged image.
+
+**If anything goes wrong, nothing is changed.** When the server cannot be reached,
+the file is missing or the download breaks off, the adapter answers
+``OTA failed: <reason>`` and keeps running the old firmware; the new slot is only
+activated after the complete image was written and checked. Fix the cause and repeat
+the command. The previous firmware stays in the other slot until the next update.
+
+.. note::
+
+   The image is not authenticated: anyone who can send commands to the adapter can
+   load any firmware into it. Only use ``++ota`` in a network you trust.
+
+Updating over USB
+-----------------
+
+The adapter's native USB port is also its programming port. Opening it at 1200 baud
+(or holding **BOOT** while pressing **RESET**) switches the ESP32-S2 into its ROM
+boot loader. It then reappears as a different USB device: ``303a:0002``, reported as
+``ESP32-S2`` with serial number ``0``, on Linux
+``/dev/serial/by-id/usb-Espressif_ESP32-S2_0-if00``.
+
+``pio run -t upload`` does **not** work with this board: the adapter drops into the
+ROM boot loader and the upload fails there. Flash with esptool directly instead and
+tell it not to reset the chip (``--before no_reset``):
+
+1. Close every program that has the adapter's port open.
+
+2. Switch the adapter into the boot loader, either by opening the port at 1200 baud
+
+   .. code-block:: bash
+
+      stty -F /dev/serial/by-id/usb-Espressif_Systems_AR488_GPIB-USB_F1B5CE-if00 1200
+
+   or by hand: hold **BOOT**, press and release **RESET**, release **BOOT**. Check
+   that ``/dev/serial/by-id/usb-Espressif_ESP32-S2_0-if00`` exists.
+
+3. Write the four images (run from the project directory):
+
+   .. code-block:: bash
+
+      B=.pio/build/AR488-ESP32-Rev5
+      pio pkg exec -p tool-esptoolpy -- esptool.py --chip esp32s2 \
+          --port /dev/serial/by-id/usb-Espressif_ESP32-S2_0-if00 \
+          --before no_reset write_flash \
+          0x1000  $B/bootloader.bin \
+          0x8000  $B/partitions.bin \
+          0xe000  ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
+          0x10000 $B/firmware.bin
+
+   A separately installed esptool (``pip install esptool``, command ``esptool``)
+   works the same way.
+
+4. Press **RESET** (or unplug and replug the adapter). It starts the new firmware
+   and appears again under its own ``/dev/serial/by-id/`` name.
+
+The settings in flash (NVS), including the WiFi data, are not touched by this.
+Writing ``boot_app0.bin`` makes the adapter start from ``app0`` again, even if it
+was running from ``app1`` after an ``++ota`` update.
+
+.. important::
+
+   **Put only one adapter at a time into the boot loader.** In the boot loader all
+   adapters report the same name and serial number ``0``, so there is no way to tell
+   them apart, and the ``by-id`` link points to just one of them. If you prefer to
+   address the adapter by its USB socket, use its ``/dev/serial/by-path/`` link
+   (``ls -l /dev/serial/by-path/`` lists them); that link stays the same in the boot
+   loader.
+
+If the adapter does not respond at all or does not show up on USB, start the boot
+loader by hand (BOOT + RESET) and flash it as above.
