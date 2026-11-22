@@ -9,6 +9,15 @@ environment. This project is a friendly fork from the
 family platform and improving the source code of the firmware. The original AR488 itself
 was inspired by and has been based on the work originally released by Emanuele Girlando.
 
+This repository continues that work. Its lineage is
+[Twilight-Logic/AR488](https://github.com/Twilight-Logic/AR488) →
+[douardda/AR488-ESP32](https://github.com/douardda/AR488-ESP32) →
+[WilheJo/AR488-ESP32](https://github.com/WilheJo/AR488-ESP32) (ESP32-S2 support) →
+dc3ax/AR488-ESP32. The full commit history of these projects is kept. Additions here
+include support for the AR488 Rev5 board (ESP32-S2-MINI-2), WiFi/telnet access,
+mDNS host names and a stable USB serial number per adapter; see the user manual in
+`docs/source/user-manual.rst`.
+
 This sketch represents a major refactoring of the orignal AR488 source code.
 
 It implements the full set of Prologix ++ commands in both controller and device mode.
