@@ -690,8 +690,15 @@ The image is not authenticated: anyone who can send commands to the adapter can 
 firmware into it. See :ref:`Updating the Firmware` in the user manual for the whole
 procedure.
 
+``++ota pass`` sets the password of the firmware update page that the adapter serves
+on ``http://<host name>/`` (user name ``ar488``). Without an own password it is the
+default host name ``ar488-`` plus the last six digits of the MAC address, for
+example ``ar488-f1b5ce``. ``++ota pass auto`` returns to that default. The query
+answers only ``set`` or ``default``, never the password. Save it with ``++savecfg``.
+
 :Modes: controller, device
 :Syntax: ``++ota [http://<host>[:<port>]/<path>/firmware.bin]``
+:Syntax: ``++ota pass [<password>|auto]`` (password: 8–63 printable characters)
 
 Example::
 

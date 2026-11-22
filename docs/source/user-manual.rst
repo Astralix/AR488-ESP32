@@ -31,7 +31,7 @@ GPIB-ETHERNET controller works with it.
    * - Bus transceivers
      - SN75160 (data) and SN75161 (control), 48 mA bus drivers
    * - Host interfaces
-     - USB (virtual serial port) and WiFi (TCP port 23)
+     - USB (virtual serial port) and WiFi (TCP port 23; firmware update page on port 80)
    * - Default role
      - GPIB controller-in-charge, own address 0
    * - Default target
@@ -82,7 +82,7 @@ Example with picocom (``-c`` shows what you type):
 Type ``++ver`` and Enter. The adapter replies with its version::
 
    ++ver
-   AR488 GPIB controller, ver. 0.49.16, 22/11/2026
+   AR488 GPIB controller, ver. 0.49.17, 23/11/2026
 
 Leave picocom with :kbd:`Ctrl-A` :kbd:`Ctrl-X`. On Windows, PuTTY or Tera Term work
 the same way.
@@ -171,7 +171,7 @@ restart unless you save them::
 
 Saved are: address, mode, ``auto``, ``eoi``, ``eos``, ``eor``, ``eot_enable``,
 ``eot_char``, ``read_tmo_ms``, ``verbose``, ``prompt``, the ``id`` settings, and the
-WiFi settings (SSID, password, host name).
+WiFi settings (SSID, password, host name, update password).
 
 ``++default`` loads the factory defaults (save them with ``++savecfg`` to make them
 permanent).
@@ -255,7 +255,10 @@ Checking the connection
    mDNS:    ar488-f1b5ce.local
    Signal:  -43 dBm, channel 11
    Telnet:  port 23, client connected
+   Web:     http://192.168.5.186/ (default update password)
    MAC:     44:B1:76:F1:B5:CE
+
+``Web:`` is the address of the firmware update page (see `Updating over WiFi`_).
 
 If the adapter cannot connect, it keeps retrying and the status shows why:
 
@@ -480,6 +483,9 @@ WiFi
 ``++ota [url]``                 **new:** without argument: running partition and
                                 version; with an ``http://`` URL: update the
                                 firmware over WiFi (see `Updating over WiFi`_)
+``++ota pass [pw|auto]``        **new:** password of the update web page;
+                                ``auto`` = default ``ar488-xxxxxx``; query only
+                                answers ``set``/``default``
 ==============================  ===================================================
 
 .. note::
@@ -531,8 +537,8 @@ Troubleshooting
 Updating the Firmware
 =====================
 
-There are two ways to install new firmware: over WiFi with ``++ota`` (no cable, the
-adapter can stay in the rack), or over USB with ``esptool``. Both keep the saved
+New firmware can be installed over WiFi – in the browser or with ``++ota`` – so the
+adapter can stay in the rack, or over USB with ``esptool``. All ways keep the saved
 settings, including the WiFi data. ``++ver`` shows the installed version afterwards.
 
 Build the firmware first:
@@ -546,10 +552,55 @@ The images are then in ``.pio/build/AR488-ESP32-Rev5/``.
 Updating over WiFi
 ------------------
 
-The flash memory holds two firmware slots (``app0`` and ``app1``). ``++ota`` loads a
-new image into the slot that is not running and restarts from it. The adapter
-fetches the image itself by HTTP, so any web server on a PC it can reach will do; no
-port on the adapter is opened for this, and it also works across subnets.
+The flash memory holds two firmware slots (``app0`` and ``app1``). A WiFi update
+writes the new image into the slot that is not running and restarts from it.
+
+**If anything goes wrong, nothing is changed.** The new slot is only activated after
+the complete image was received and checked. If the upload breaks off, the file is
+not a firmware image or the server cannot be reached, the adapter keeps running the
+old firmware. Fix the cause and try again. The previous firmware stays in the other
+slot until the next update.
+
+Use ``firmware.bin`` only – not ``bootloader.bin``, ``partitions.bin`` or a merged
+image.
+
+In the browser
+~~~~~~~~~~~~~~
+
+1. Open ``http://<host name>/`` or ``http://<IP address>/``, for example
+   ``http://ar488-f1b5ce.local/``.
+
+2. Log in with user name ``ar488`` and the update password. Unless you set one of
+   your own, the password is the adapter's default host name, for example
+   ``ar488-f1b5ce`` (also when a different host name was set with ``++wifi host``).
+
+3. The page shows host name, firmware version and running slot. Choose
+   ``firmware.bin`` and click **Update**. After about 5 seconds the page reports
+   ``Update done, the adapter restarts now`` – or ``Update failed: <reason>.
+   Nothing was changed.``
+
+Own update password:
+
+.. code-block:: text
+
+   ++ota pass my-update-pw    set an own password (8–63 characters)
+   ++ota pass                 answers "set" or "default" – never the password
+   ++ota pass auto            back to the default password ar488-xxxxxx
+   ++savecfg                  keep it
+
+.. note::
+
+   The default password is not a secret: the adapter announces its host name in the
+   network. It only prevents an update by accident. If other people share the
+   network, set an own password. The page uses plain HTTP, so the password is sent
+   unencrypted.
+
+From a web server with ``++ota``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``++ota <url>`` makes the adapter fetch the image itself by HTTP – handy for scripts
+and for updating several adapters in a row. Any web server on a PC the adapter can
+reach will do.
 
 1. Serve the build directory, for example with Python on the PC (any free port):
 
@@ -571,22 +622,12 @@ port on the adapter is opened for this, and it also works across subnets.
 3. Check the result::
 
       ++ota
-      running from app1, AR488 GPIB controller, ver. 0.49.16, 22/11/2026
+      running from app1, AR488 GPIB controller, ver. 0.49.17, 23/11/2026
 
 Only ``http://`` URLs are accepted (no ``https://``), and the adapter must be
-connected to WiFi. Give it ``firmware.bin`` only – not ``bootloader.bin``,
-``partitions.bin`` or a merged image.
-
-**If anything goes wrong, nothing is changed.** When the server cannot be reached,
-the file is missing or the download breaks off, the adapter answers
-``OTA failed: <reason>`` and keeps running the old firmware; the new slot is only
-activated after the complete image was written and checked. Fix the cause and repeat
-the command. The previous firmware stays in the other slot until the next update.
-
-.. note::
-
-   The image is not authenticated: anyone who can send commands to the adapter can
-   load any firmware into it. Only use ``++ota`` in a network you trust.
+connected to WiFi. On an error it answers ``OTA failed: <reason>`` and nothing is
+changed. ``++ota`` needs no password – whoever can send commands to the adapter can
+update it anyway.
 
 Updating over USB
 -----------------
