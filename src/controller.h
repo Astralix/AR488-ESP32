@@ -168,6 +168,7 @@ public:  // TODO: better than this...
   void tmbus_h    (char *);
   void verb_h     (char *);
 #ifdef AR488_WIFI_ENABLE
+  void ota_h      (char *);
   void wifi_h     (char *);
 #endif
   void xdiag_h    (char *);

@@ -4,6 +4,11 @@
 #include "controller.h"
 #include "gpib.h"
 #include "macros.h"
+#ifdef AR488_WIFI_ENABLE
+#include <WiFi.h>
+#include <HTTPUpdate.h>
+#include <esp_ota_ops.h>
+#endif
 
 
 /***** Array containing index of accepted ++ commands *****/
@@ -63,6 +68,7 @@ static cmdRec cmdHidx [] = {
   { "tmbus",       3, &Controller::tmbus_h     },
   { "verbose",     3, &Controller::verb_h      },
 #ifdef AR488_WIFI_ENABLE
+  { "ota",         3, &Controller::ota_h       },
   { "wifi",        3, &Controller::wifi_h      },
 #endif
   { "xdiag",       3, &Controller::xdiag_h     }
@@ -1379,6 +1385,58 @@ void Controller::errBadCmd() {
 
 
 #ifdef AR488_WIFI_ENABLE
+/***** Firmware update over the network *****/
+/*
+ * ++ota <url>  - fetch a firmware image (firmware.bin of a build) by HTTP from <url>,
+ *                write it to the other app partition and restart from it.
+ *                Example: ++ota http://192.168.5.61:8016/fw/ar488.bin
+ * ++ota        - show the running partition and the firmware version.
+ * The adapter pulls the image itself, so no port is opened for updates and it works
+ * across networks (no mDNS needed). The old firmware stays in the other partition
+ * until the next update; a failed download changes nothing.
+ */
+void Controller::ota_h(char *params) {
+  const esp_partition_t *run = esp_ota_get_running_partition();
+  if (params == NULL || params[0] == 0) {
+    cmdstream->print(F("running from "));
+    cmdstream->print(run ? run->label : "?");
+    cmdstream->print(F(", "));
+    cmdstream->println(F(FWVER));
+    return;
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    cmdstream->println(F("OTA: WiFi not connected"));
+    return;
+  }
+  if (strncmp(params, "http://", 7) != 0) {
+    cmdstream->println(F("OTA: give an http:// URL of firmware.bin"));
+    errBadCmd();
+    return;
+  }
+  cmdstream->print(F("OTA: fetching "));
+  cmdstream->println(params);
+  cmdstream->flush();
+  WiFiClient client;
+  httpUpdate.rebootOnUpdate(false);       // say the result first, then restart
+  t_httpUpdate_return ret = httpUpdate.update(client, String(params));
+  switch (ret) {
+    case HTTP_UPDATE_OK:
+      cmdstream->println(F("OTA: done, restarting"));
+      cmdstream->flush();
+      delay(500);
+      ESP.restart();
+      break;
+    case HTTP_UPDATE_NO_UPDATES:
+      cmdstream->println(F("OTA: no update offered"));
+      break;
+    default:
+      cmdstream->print(F("OTA failed: "));
+      cmdstream->println(httpUpdate.getLastErrorString());
+      break;
+  }
+}
+
+
 /***** Configure Wifi connection *****/
 /*
  * Sets the wifi parameterw:
@@ -1536,6 +1594,7 @@ static const char cmdHelp[] PROGMEM = {
   "tmbus: Timing parameters (see the doc)\n"
   "verbose: Verbose (human readable) mode\n"
 #ifdef AR488_WIFI_ENABLE
+  "ota: Show the running partition and version; ota <url>: update the firmware from http://<url> (firmware.bin)\n"
   "wifi ssid: Set or get the wifi SSID (31 chars max)\n"
   "wifi pass: Set the wifi passphrase (8-63 chars); query shows only set/not set\n"
   "wifi connect: Connect to the configure wifi AP\n"
