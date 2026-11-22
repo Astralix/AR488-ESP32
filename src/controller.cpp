@@ -58,7 +58,7 @@
    ++lon          - put controller in listen-only mode (listen to all traffic)
    ++mode         - set the interface mode (0=controller/1=device)
    ++read         - read data from instrument
-   ++read_tmo_ms  - read timeout specified between 1 - 3000 milliseconds
+   ++read_tmo_ms  - read timeout specified between 1 - 32000 milliseconds
    ++rst          - reset the controller
    ++savecfg      - save configration
    ++spoll        - serial poll the addressed host or all instruments

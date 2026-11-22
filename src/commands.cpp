@@ -1560,7 +1560,7 @@ static const char cmdHelp[] PROGMEM = {
   "lon: Put controller in listen-only mode (listen to all traffic)\n"
   "mode: Set the interface mode (0=controller/1=device)\n"
   "read: Read data from instrument\n"
-  "read_tmo_ms: Read timeout specified between 1 - 3000 milliseconds\n"
+  "read_tmo_ms: Read timeout specified between 1 - 32000 milliseconds\n"
   "rst: Reset the controller\n"
   "savecfg: Save configration\n"
   "spoll: Serial poll the addressed host or all instruments\n"

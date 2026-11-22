@@ -29,7 +29,7 @@ typedef struct {
   uint8_t eos;      // EOS (end of send to GPIB) characters [0=CRLF, 1=CR, 2=LF, 3=None]
   uint8_t stat;     // Status byte to return in response to a serial poll
   uint8_t amode;    // Auto mode setting (0=off; 1=Prologix; 2=onquery; 3=continuous);
-  int rtmo;         // Read timout (read_tmo_ms) in milliseconds - 0-3000 - value depends on instrument
+  int rtmo;         // Read timout (read_tmo_ms) in milliseconds - 1-32000 - value depends on instrument
   char eot_ch;      // EOT character to append to USB output when EOI signal detected
   char vstr[48];    // Custom version string
   uint16_t tmbus;   // Delay to allow the bus control/data lines to settle (1-30,000 microseconds)
