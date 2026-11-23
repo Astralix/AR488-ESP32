@@ -4,6 +4,11 @@
 #include "controller.h"
 #include "gpib.h"
 #include "macros.h"
+#ifdef AR488_WIFI_ENABLE
+#include <WiFi.h>
+#include <HTTPUpdate.h>
+#include <esp_ota_ops.h>
+#endif
 
 
 /***** Array containing index of accepted ++ commands *****/
@@ -63,6 +68,7 @@ static cmdRec cmdHidx [] = {
   { "tmbus",       3, &Controller::tmbus_h     },
   { "verbose",     3, &Controller::verb_h      },
 #ifdef AR488_WIFI_ENABLE
+  { "ota",         3, &Controller::ota_h       },
   { "wifi",        3, &Controller::wifi_h      },
 #endif
   { "xdiag",       3, &Controller::xdiag_h     }
@@ -1379,6 +1385,83 @@ void Controller::errBadCmd() {
 
 
 #ifdef AR488_WIFI_ENABLE
+/***** Firmware update over the network *****/
+/*
+ * ++ota <url>  - fetch a firmware image (firmware.bin of a build) by HTTP from <url>,
+ *                write it to the other app partition and restart from it.
+ *                Example: ++ota http://192.168.5.61:8016/fw/ar488.bin
+ * ++ota        - show the running partition and the firmware version.
+ * The adapter pulls the image itself, so no port is opened for updates and it works
+ * across networks (no mDNS needed). The old firmware stays in the other partition
+ * until the next update; a failed download changes nothing.
+ */
+void Controller::ota_h(char *params) {
+  const esp_partition_t *run = esp_ota_get_running_partition();
+  if (params == NULL || params[0] == 0) {
+    cmdstream->print(F("running from "));
+    cmdstream->print(run ? run->label : "?");
+    cmdstream->print(F(", "));
+    cmdstream->println(F(FWVER));
+    return;
+  }
+  // ++ota pass [password|auto]: password of the web update page (auto = ar488-<MAC>)
+  if (strncmp(params, "pass", 4) == 0 && (params[4] == 0 || params[4] == ' ')) {
+    char *pw = params + 4;
+    while (*pw == ' ') pw++;
+    size_t n = strlen(pw);
+    if (n == 0) {
+      cmdstream->println(config.otapass[0] ? F("set") : F("default"));  // never show an own one
+    } else if (strcmp(pw, "auto") == 0) {
+      memset(config.otapass, '\0', sizeof(config.otapass));
+      if (config.isVerb) cmdstream->println(F("Update password back to default ar488-<MAC>. ++savecfg to keep it."));
+    } else {
+      bool valid = (n >= 8 && n < sizeof(config.otapass));
+      for (size_t i = 0; valid && i < n; i++) valid = (pw[i] >= 32 && pw[i] <= 126);
+      if (valid) {
+        memset(config.otapass, '\0', sizeof(config.otapass));
+        strncpy(config.otapass, pw, n);
+        if (config.isVerb) cmdstream->println(F("Update password set. ++savecfg to keep it."));
+      } else {
+        if (config.isVerb) cmdstream->println(F("Password must be 8-63 printable characters!"));
+        errBadCmd();
+      }
+      memset(pw, '\0', n);  // do not leave the password in the command buffer
+    }
+    return;
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    cmdstream->println(F("OTA: WiFi not connected"));
+    return;
+  }
+  if (strncmp(params, "http://", 7) != 0) {
+    cmdstream->println(F("OTA: give an http:// URL of firmware.bin"));
+    errBadCmd();
+    return;
+  }
+  cmdstream->print(F("OTA: fetching "));
+  cmdstream->println(params);
+  cmdstream->flush();
+  WiFiClient client;
+  httpUpdate.rebootOnUpdate(false);       // say the result first, then restart
+  t_httpUpdate_return ret = httpUpdate.update(client, String(params));
+  switch (ret) {
+    case HTTP_UPDATE_OK:
+      cmdstream->println(F("OTA: done, restarting"));
+      cmdstream->flush();
+      delay(500);
+      ESP.restart();
+      break;
+    case HTTP_UPDATE_NO_UPDATES:
+      cmdstream->println(F("OTA: no update offered"));
+      break;
+    default:
+      cmdstream->print(F("OTA failed: "));
+      cmdstream->println(httpUpdate.getLastErrorString());
+      break;
+  }
+}
+
+
 /***** Configure Wifi connection *****/
 /*
  * Sets the wifi parameterw:
@@ -1496,15 +1579,15 @@ static const char cmdHelp[] PROGMEM = {
   "eot_char: Set character to append to USB output when EOT enabled\n"
   "eot_enable: Enable/Disable appending user specified character to USB output on EOI detection\n"
   "help: This message\n"
-  "ifc: Assert IFC signal for 150 miscoseconds - make AR488 controller in charge\n"
+  "ifc: Assert IFC signal for 150 microseconds - make AR488 controller in charge\n"
   "llo: Local lockout - disable front panel operation on instrument\n"
   "loc: Enable front panel operation on instrument\n"
   "lon: Put controller in listen-only mode (listen to all traffic)\n"
-  "mode: Set the interface mode (0=controller/1=device)\n"
+  "mode: Set the interface mode (0=device/1=controller)\n"
   "read: Read data from instrument\n"
-  "read_tmo_ms: Read timeout specified between 1 - 3000 milliseconds\n"
+  "read_tmo_ms: Read timeout specified between 1 - 32000 milliseconds\n"
   "rst: Reset the controller\n"
-  "savecfg: Save configration\n"
+  "savecfg: Save configuration\n"
   "spoll: Serial poll the addressed host or all instruments\n"
   "srq: Return status of srq signal (1-srq asserted/0-srq not asserted)\n"
   "status: Set the status byte to be returned on being polled (bit 6 = RQS, i.e SRQ asserted)\n"
@@ -1536,9 +1619,11 @@ static const char cmdHelp[] PROGMEM = {
   "tmbus: Timing parameters (see the doc)\n"
   "verbose: Verbose (human readable) mode\n"
 #ifdef AR488_WIFI_ENABLE
+  "ota: Show the running partition and version; ota <url>: update the firmware from http://<url> (firmware.bin)\n"
+  "ota pass: Set the password of the web update page (8-63 chars, auto = ar488-<MAC>); query shows set/default\n"
   "wifi ssid: Set or get the wifi SSID (31 chars max)\n"
   "wifi pass: Set the wifi passphrase (8-63 chars); query shows only set/not set\n"
-  "wifi connect: Connect to the configure wifi AP\n"
+  "wifi connect: Connect to the configured wifi AP\n"
   "wifi scan: Scan for accessible AP\n"
   "wifi status: Show WiFi connection state, IP address and signal\n"
   "wifi host: Set or get the network host name ('auto' = ar488-<MAC>)\n"

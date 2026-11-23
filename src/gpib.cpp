@@ -337,6 +337,11 @@ bool GPIB::gpibReceiveData() {
   // Ready the data bus
   readyGpibDbus();
 
+  // Received bytes go out in blocks: one print() per byte made one TCP packet per
+  // byte over WiFi (setNoDelay), about 3.7 ms each - a 9 kB trace took 33 s.
+  uint8_t obuf[256];
+  uint16_t olen = 0;
+
   // Perform read of data (r=0: data read OK; r>0: GPIB read error);
   while (r == 0) {
 
@@ -350,8 +355,8 @@ bool GPIB::gpibReceiveData() {
     r = gpibReadByte(&bytes[0], &eoiDetected);
 
     // When reading with amode=3 or EOI check serial input and break loop if neccessary
-    if ((config.amode==3) || rEoi)
-	  // XXX find a better solution
+    // (only every 64 bytes: each look costs a lwIP call on a WiFi client)
+    if (((config.amode==3) || rEoi) && (x & 63) == 0)
 	  if (controller.serialIn_h() > 0) {
 		// Line terminator detected (loop breaks on command being detected or data buffer full)
 		controller.aRead = false;  // Stop auto read
@@ -368,8 +373,12 @@ bool GPIB::gpibReceiveData() {
 #ifdef DEBUG7
     dbSerial->print(bytes[0], HEX), dbSerial->print(' ');
 #else
-    // Output the character to the serial port
-    controller.cmdstream->print((char)bytes[0]);
+    // Collect the character; the block goes out when full and after the loop
+    obuf[olen++] = bytes[0];
+    if (olen == sizeof(obuf)) {
+      controller.cmdstream->write(obuf, olen);
+      olen = 0;
+    }
 #endif
 
     // Byte counter
@@ -390,6 +399,9 @@ bool GPIB::gpibReceiveData() {
     bytes[2] = bytes[1];
     bytes[1] = bytes[0];
   }
+
+  // What is left of the block, before any message or the EOT character
+  if (olen) controller.cmdstream->write(obuf, olen);
 
 #ifdef DEBUG7
   dbSerial->println();

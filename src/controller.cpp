@@ -16,6 +16,9 @@
 #include <esp_system.h>   // esp_read_mac()
 #include <ESPmDNS.h>
 #include <lwip/sockets.h>  // recv() to detect a closed TCP client
+#include <WebServer.h>
+#include <Update.h>
+#include <esp_ota_ops.h>
 #endif
 
 #if defined(USE_MACROS)
@@ -52,13 +55,13 @@
    ++eos          - specify GPIB termination character
    ++eot_enable   - enable/disable appending user specified character to USB output on EOI detection
    ++eot_char     - set character to append to USB output when EOT enabled
-   ++ifc          - assert IFC signal for 150 miscoseconds - make AR488 controller in charge
+   ++ifc          - assert IFC signal for 150 microseconds - make AR488 controller in charge
    ++llo          - local lockout - disable front panel operation on instrument
    ++loc          - enable front panel operation on instrument
    ++lon          - put controller in listen-only mode (listen to all traffic)
-   ++mode         - set the interface mode (0=controller/1=device)
+   ++mode         - set the interface mode (0=device/1=controller)
    ++read         - read data from instrument
-   ++read_tmo_ms  - read timeout specified between 1 - 3000 milliseconds
+   ++read_tmo_ms  - read timeout specified between 1 - 32000 milliseconds
    ++rst          - reset the controller
    ++savecfg      - save configration
    ++spoll        - serial poll the addressed host or all instruments
@@ -334,7 +337,7 @@ void Controller::resetConfig() {
   // Set default values ({'\0'} sets version string array to null)
   config = {false, false, 2, 0, AR488_DEFAULT_PADDR, 0, 0, 0, 0, 1200, 0, {'\0'}, 0, 0, {'\0'}, 0, 0, false, false
 #ifdef AR488_WIFI_ENABLE
-			,{'\0'}, {'\0'}, {'\0'}
+			,{'\0'}, {'\0'}, {'\0'}, {'\0'}
 #endif
   };
 }
@@ -378,6 +381,9 @@ void Controller::initConfig()
   }
   if (pref.isKey("hostname")) {
 	pref.getBytes("hostname", config.hostname, sizeof(config.hostname));
+  }
+  if (pref.isKey("otapass")) {
+	pref.getBytes("otapass", config.otapass, sizeof(config.otapass));
   }
 #endif
   pref.end();
@@ -436,6 +442,7 @@ void Controller::saveConfig()
   pref.putBytes("ssid", config.ssid, sizeof(config.ssid));
   pref.putBytes("passkey", config.passkey, sizeof(config.passkey));
   pref.putBytes("hostname", config.hostname, sizeof(config.hostname));
+  pref.putBytes("otapass", config.otapass, sizeof(config.otapass));
 #endif
 
   pref.end();
@@ -523,6 +530,17 @@ const char *Controller::wifiHostname()
   return name;
 }
 
+/***** Password of the web update page: own one, or "ar488-" + last 3 bytes of the MAC *****/
+const char *Controller::otaPassword()
+{
+  static char name[16];
+  if (strlen(config.otapass) > 0) return config.otapass;
+  uint8_t mac[6];
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  snprintf(name, sizeof(name), "ar488-%02x%02x%02x", mac[3], mac[4], mac[5]);
+  return name;
+}
+
 /*
  * Start (or restart) the WiFi connection in the background.
  * Does not block: the TCP console server on port 23 is started by
@@ -564,6 +582,106 @@ static bool tcpClientGone(WiFiClient &client)
   return recv(client.fd(), &b, 1, MSG_PEEK | MSG_DONTWAIT) == 0;
 }
 
+/***** Firmware update page (HTTP, port 80) *****/
+/*
+ * http://<host name>/ shows host name, version and running partition and offers a
+ * form to upload firmware.bin. The image goes to the other app partition; only
+ * when it was received completely and checked is that partition activated and the
+ * adapter restarted, so a failed upload changes nothing.
+ * The page needs user name "ar488" and the password set with ++ota pass; without
+ * one it is the default host name ar488-<last 3 MAC bytes>.
+ */
+static WebServer webserver(80);
+static Controller *webCtrl = NULL;
+static bool webAuthOk = false;          // the running upload is authenticated
+static bool webUpdateStarted = false;   // Update.begin() succeeded for it
+static bool webBadImage = false;        // the file is not an app image (firmware.bin)
+
+static const char webHead[] PROGMEM =
+  "<!DOCTYPE html><html><head><meta charset=utf-8>"
+  "<meta name=viewport content='width=device-width,initial-scale=1'><title>AR488</title>"
+  "<style>body{font-family:sans-serif;margin:1em auto;max-width:40em;padding:0 1em}"
+  "code{background:#eee;padding:0 .2em}</style></head><body>";
+
+static bool webAuthenticated()
+{
+  return webserver.authenticate("ar488", webCtrl->otaPassword());
+}
+
+static void webRoot()
+{
+  if (!webAuthenticated())
+    return webserver.requestAuthentication(BASIC_AUTH, "AR488 update");
+  const esp_partition_t *run = esp_ota_get_running_partition();
+  String s = FPSTR(webHead);
+  s += F("<h2>");
+  s += webCtrl->wifiHostname();
+  s += F("</h2><p>" FWVER "<br>running from ");
+  s += run ? run->label : "?";
+  s += F("</p><h3>Firmware update</h3>");
+  s += F("<form method=POST action=/update enctype=multipart/form-data>"
+         "<input type=file name=fw accept=.bin required> <input type=submit value=Update>"
+         "</form><p>Select <code>firmware.bin</code> of a build. The settings are kept. "
+         "If the update fails, nothing is changed.</p>");
+  s += F("</body></html>");
+  webserver.send(200, "text/html", s);
+}
+
+static void webUpload()
+{
+  HTTPUpload &up = webserver.upload();
+  switch (up.status) {
+    case UPLOAD_FILE_START:
+      webAuthOk = webAuthenticated();
+      webUpdateStarted = false;
+      webBadImage = false;
+      if (!webAuthOk) return;
+      webCtrl->serialstream->print(F("Web update: receiving "));
+      webCtrl->serialstream->println(up.filename);
+      webUpdateStarted = Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH);
+      break;
+    case UPLOAD_FILE_WRITE:
+      // An app image starts with 0xE9 (first block: totalSize is still 0). This catches
+      // partitions.bin, boot_app0.bin and other wrong files; Update checks the rest.
+      if (webUpdateStarted && up.totalSize == 0 && up.buf[0] != 0xE9) {
+        Update.abort();
+        webUpdateStarted = false;
+        webBadImage = true;
+      }
+      if (webUpdateStarted && !Update.hasError()) Update.write(up.buf, up.currentSize);
+      break;
+    case UPLOAD_FILE_END:
+      if (webUpdateStarted) Update.end(true);
+      break;
+    case UPLOAD_FILE_ABORTED:
+      if (webUpdateStarted) Update.abort();
+      webUpdateStarted = false;
+      break;
+  }
+}
+
+static void webUpdateDone()
+{
+  if (!webAuthOk) return webserver.requestAuthentication(BASIC_AUTH, "AR488 update");
+  String s = FPSTR(webHead);
+  bool ok = webUpdateStarted && Update.isFinished() && !Update.hasError();
+  if (ok) {
+    s += F("<p>Update done, the adapter restarts now.</p>"
+           "<p><a href=/>Back</a> (after about 10 seconds)</p></body></html>");
+  } else {
+    s += F("<p>Update failed: ");
+    s += webBadImage ? "not a firmware image (firmware.bin expected)"
+         : webUpdateStarted ? Update.errorString() : "could not start";
+    s += F(". Nothing was changed.</p><p><a href=/>Back</a></p></body></html>");
+  }
+  webserver.send(200, "text/html", s);
+  webCtrl->serialstream->println(ok ? F("Web update: done, restarting") : F("Web update: failed"));
+  if (ok) {
+    delay(500);
+    ESP.restart();
+  }
+}
+
 void Controller::connectWifi()
 {
   bool connected = (WiFi.status() == WL_CONNECTED);
@@ -577,6 +695,10 @@ void Controller::connectWifi()
       if (!wifiServerUp) {
         wifiserver.begin();
         wifiserver.setNoDelay(true);
+        webCtrl = this;
+        webserver.on("/", HTTP_GET, webRoot);
+        webserver.on("/update", HTTP_POST, webUpdateDone, webUpload);
+        webserver.begin();
         wifiServerUp = true;
       }
       // (Re)announce <hostname>.local and the telnet console via mDNS;
@@ -585,6 +707,7 @@ void Controller::connectWifi()
       if (MDNS.begin(wifiHostname())) {
         MDNS.setInstanceName("AR488 GPIB adapter");
         MDNS.addService("telnet", "tcp", 23);
+        MDNS.addService("http", "tcp", 80);
         serialstream->print(F("mDNS name: "));
         serialstream->print(wifiHostname());
         serialstream->println(F(".local"));
@@ -625,6 +748,7 @@ void Controller::connectWifi()
       other.stop();
     }
   }
+  if (connected && wifiServerUp) webserver.handleClient();
 }
 
 void Controller::scanWifi()
@@ -681,6 +805,9 @@ void Controller::statusWifi()
     cmdstream->println(WiFi.channel());
     cmdstream->print(F("Telnet:  port 23, "));
     cmdstream->println(serverclient.connected() ? F("client connected") : F("no client"));
+    cmdstream->print(F("Web:     http://"));
+    cmdstream->print(WiFi.localIP());
+    cmdstream->println(config.otapass[0] ? F("/ (own update password)") : F("/ (default update password)"));
   } else {
     cmdstream->println(F("not connected, retrying"));
     if (wifiLastReason) {

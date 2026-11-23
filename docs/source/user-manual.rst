@@ -31,7 +31,7 @@ GPIB-ETHERNET controller works with it.
    * - Bus transceivers
      - SN75160 (data) and SN75161 (control), 48 mA bus drivers
    * - Host interfaces
-     - USB (virtual serial port) and WiFi (TCP port 23)
+     - USB (virtual serial port) and WiFi (TCP port 23; firmware update page on port 80)
    * - Default role
      - GPIB controller-in-charge, own address 0
    * - Default target
@@ -82,7 +82,7 @@ Example with picocom (``-c`` shows what you type):
 Type ``++ver`` and Enter. The adapter replies with its version::
 
    ++ver
-   AR488 GPIB controller, ver. 0.49.15, 17/11/2026
+   AR488 GPIB controller, ver. 0.49.17, 23/11/2026
 
 Leave picocom with :kbd:`Ctrl-A` :kbd:`Ctrl-X`. On Windows, PuTTY or Tera Term work
 the same way.
@@ -171,7 +171,7 @@ restart unless you save them::
 
 Saved are: address, mode, ``auto``, ``eoi``, ``eos``, ``eor``, ``eot_enable``,
 ``eot_char``, ``read_tmo_ms``, ``verbose``, ``prompt``, the ``id`` settings, and the
-WiFi settings (SSID, password, host name).
+WiFi settings (SSID, password, host name, update password).
 
 ``++default`` loads the factory defaults (save them with ``++savecfg`` to make them
 permanent).
@@ -255,7 +255,10 @@ Checking the connection
    mDNS:    ar488-f1b5ce.local
    Signal:  -43 dBm, channel 11
    Telnet:  port 23, client connected
+   Web:     http://192.168.5.186/ (default update password)
    MAC:     44:B1:76:F1:B5:CE
+
+``Web:`` is the address of the firmware update page (see `Updating over WiFi`_).
 
 If the adapter cannot connect, it keeps retrying and the status shows why:
 
@@ -329,6 +332,34 @@ console it came from: whichever console sent the last line gets the answers, and
 other one is told ``Moving serial console to TCP`` (or ``serial``). Do not let two
 programs use USB and the network at the same time.
 
+Speed of long answers
+---------------------
+
+Since firmware 0.49.16 the adapter collects the bytes it reads from the bus and sends
+them to the console in blocks of up to 256 bytes. Before, every byte went out as a
+TCP packet of its own (the console runs with *no delay*, so that short answers are not
+held back). Over WiFi that cost about 4 ms per byte, about 270 bytes per second.
+
+Measured with an R&S FSIQ 7 on the bus, over WiFi:
+
+=====================================  ===========  ===========
+Answer                                 0.49.15      0.49.16
+=====================================  ===========  ===========
+``TRAC? TRACE1`` (500 values, 9 kB)    33 s         0.27 s
+``*IDN?`` (38 bytes)                   0.5 s        0.02 s
+=====================================  ===========  ===========
+
+Nothing changes for the program on the other side: the answer arrives in larger
+pieces, but byte for byte the same, still followed by the EOT character if
+``++eot_enable`` is on. Over USB the effect is smaller, because the USB port already
+collected the bytes.
+
+While it reads, the adapter looks for a new command line from the console only
+after every 64 bytes (each look is a call into the network stack). A command sent to
+end a long read with ``++auto 3`` therefore takes effect at the next 64-byte step, not
+at once. For a program that leaves too long a timeout this hardly matters: the read
+ends at EOI or at the end character as before.
+
 NI-VISA and other VISA libraries
 --------------------------------
 
@@ -388,7 +419,8 @@ Instrument communication
 ``++auto [0-3]``        automatic read: 0 off, 1 after every command, 2 after queries,
                         3 continuous
 ``++read [eoi|char]``   read the instrument's answer (until EOI / the given character)
-``++read_tmo_ms [ms]``  read timeout, 1–3000 ms
+``++read_tmo_ms [ms]``  read timeout, 1–32000 ms; larger values are rejected
+                        (``Unrecognized command``)
 ``++eos [0-3]``         characters appended when sending to the instrument
 ``++eor [0-7]``         characters that end an answer from the instrument
 ``++eoi [0|1]``         assert EOI with the last byte sent
@@ -420,6 +452,7 @@ Adapter
 
 =====================  ========================================================
 ``++ver``              firmware version
+``++help [cmd]``       **new on Rev5:** command list, or one command
 ``++mode [0|1]``       0 device, **1 controller**
 ``++savecfg``          save the configuration – **changed:** always confirms
 ``++default``          load factory defaults
@@ -448,12 +481,19 @@ WiFi
                                 query only answers ``set``/``not set``
 ``++wifi host [name|auto]``     **new:** show/set the host name
 ``++wifi connect``              connect now with the current settings
+``++ota [url]``                 **new:** without argument: running partition and
+                                version; with an ``http://`` URL: update the
+                                firmware over WiFi (see `Updating over WiFi`_)
+``++ota pass [pw|auto]``        **new:** password of the update web page;
+                                ``auto`` = default ``ar488-xxxxxx``; query only
+                                answers ``set``/``default``
 ==============================  ===================================================
 
 .. note::
 
-   ``++help`` is not included in the Rev5 build to save flash; this manual and the
-   :ref:`Command Reference` replace it.
+   ``++help`` lists all commands with a one-line description; ``++help <command>``
+   shows only that command, for example ``++help eor``. The
+   :ref:`Command Reference` has the details.
 
 
 Troubleshooting
@@ -499,27 +539,156 @@ Troubleshooting
 Updating the Firmware
 =====================
 
-The firmware is built and flashed with PlatformIO:
+New firmware can be installed over WiFi – in the browser or with ``++ota`` – so the
+adapter can stay in the rack, or over USB with ``esptool``. All ways keep the saved
+settings, including the WiFi data. ``++ver`` shows the installed version afterwards.
+
+Build the firmware first:
 
 .. code-block:: bash
 
-   pio run -e AR488-ESP32-Rev5 -t upload --upload-port /dev/ttyACM0
+   pio run -e AR488-ESP32-Rev5
 
-Close all terminal programs on the port first. PlatformIO switches the adapter into
-update mode by itself (by briefly opening the port at 1200 baud). Saved settings,
-including WiFi, are kept.
+The images are then in ``.pio/build/AR488-ESP32-Rev5/``.
 
-In update mode the adapter reports itself as a plain ``ESP32-S2`` with serial number
-``0``, so its ``/dev/serial/by-id/`` link disappears while flashing. With several
-adapters connected, select the adapter by its USB socket instead, for example
-``--upload-port /dev/serial/by-path/pci-0000:00:14.0-usb-0:1.4.2:1.0``
-(``ls -l /dev/serial/by-path/`` lists them).
+Updating over WiFi
+------------------
 
-If the adapter was put into update mode by hand (BOOT button held while pressing
-RESET), it does not restart by itself after flashing: press RESET once.
+The flash memory holds two firmware slots (``app0`` and ``app1``). A WiFi update
+writes the new image into the slot that is not running and restarts from it.
 
-``++ver`` shows the installed firmware version.
+**If anything goes wrong, nothing is changed.** The new slot is only activated after
+the complete image was received and checked. If the upload breaks off, the file is
+not a firmware image or the server cannot be reached, the adapter keeps running the
+old firmware. Fix the cause and try again. The previous firmware stays in the other
+slot until the next update.
 
-If the adapter does not respond at all, start update mode by hand: hold **BOOT**,
-press and release **RESET**, release **BOOT**. The adapter then appears as
-"ESP32-S2" and can be flashed. Press **RESET** after flashing.
+Use ``firmware.bin`` only – not ``bootloader.bin``, ``partitions.bin`` or a merged
+image.
+
+In the browser
+~~~~~~~~~~~~~~
+
+1. Open ``http://<host name>/`` or ``http://<IP address>/``, for example
+   ``http://ar488-f1b5ce.local/``.
+
+2. Log in with user name ``ar488`` and the update password. Unless you set one of
+   your own, the password is the adapter's default host name, for example
+   ``ar488-f1b5ce`` (also when a different host name was set with ``++wifi host``).
+
+3. The page shows host name, firmware version and running slot. Choose
+   ``firmware.bin`` and click **Update**. After about 5 seconds the page reports
+   ``Update done, the adapter restarts now`` – or ``Update failed: <reason>.
+   Nothing was changed.``
+
+Own update password:
+
+.. code-block:: text
+
+   ++ota pass my-update-pw    set an own password (8–63 characters)
+   ++ota pass                 answers "set" or "default" – never the password
+   ++ota pass auto            back to the default password ar488-xxxxxx
+   ++savecfg                  keep it
+
+.. note::
+
+   The default password is not a secret: the adapter announces its host name in the
+   network. It only prevents an update by accident. If other people share the
+   network, set an own password. The page uses plain HTTP, so the password is sent
+   unencrypted.
+
+From a web server with ``++ota``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``++ota <url>`` makes the adapter fetch the image itself by HTTP – handy for scripts
+and for updating several adapters in a row. Any web server on a PC the adapter can
+reach will do.
+
+1. Serve the build directory, for example with Python on the PC (any free port):
+
+   .. code-block:: bash
+
+      cd .pio/build/AR488-ESP32-Rev5
+      python3 -m http.server 8016
+
+2. Give the adapter the URL of ``firmware.bin`` (on USB or the telnet console)::
+
+      ++ota http://192.168.5.61:8016/firmware.bin
+      OTA: fetching http://192.168.5.61:8016/firmware.bin
+      OTA: done, restarting
+
+   Loading takes about 5 seconds. The adapter then restarts with the new firmware
+   and reconnects to WiFi; a telnet session is closed by the restart and has to be
+   opened again.
+
+3. Check the result::
+
+      ++ota
+      running from app1, AR488 GPIB controller, ver. 0.49.17, 23/11/2026
+
+Only ``http://`` URLs are accepted (no ``https://``), and the adapter must be
+connected to WiFi. On an error it answers ``OTA failed: <reason>`` and nothing is
+changed. ``++ota`` needs no password – whoever can send commands to the adapter can
+update it anyway.
+
+Updating over USB
+-----------------
+
+The adapter's native USB port is also its programming port. Opening it at 1200 baud
+(or holding **BOOT** while pressing **RESET**) switches the ESP32-S2 into its ROM
+boot loader. It then reappears as a different USB device: ``303a:0002``, reported as
+``ESP32-S2`` with serial number ``0``, on Linux
+``/dev/serial/by-id/usb-Espressif_ESP32-S2_0-if00``.
+
+``pio run -t upload`` does **not** work with this board: the adapter drops into the
+ROM boot loader and the upload fails there. Flash with esptool directly instead and
+tell it not to reset the chip (``--before no_reset``):
+
+1. Close every program that has the adapter's port open.
+
+2. Switch the adapter into the boot loader, either by opening the port at 1200 baud
+
+   .. code-block:: bash
+
+      stty -F /dev/serial/by-id/usb-Espressif_Systems_AR488_GPIB-USB_F1B5CE-if00 1200
+
+   or by hand: hold **BOOT**, press and release **RESET**, release **BOOT**. Check
+   that ``/dev/serial/by-id/usb-Espressif_ESP32-S2_0-if00`` exists.
+
+3. Write the four images (run from the project directory):
+
+   .. code-block:: bash
+
+      B=.pio/build/AR488-ESP32-Rev5
+      pio pkg exec -p tool-esptoolpy -- esptool.py --chip esp32s2 \
+          --port /dev/serial/by-id/usb-Espressif_ESP32-S2_0-if00 \
+          --before no_reset write_flash \
+          0x1000  $B/bootloader.bin \
+          0x8000  $B/partitions.bin \
+          0xe000  ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
+          0x10000 $B/firmware.bin
+
+   A separately installed esptool (``pip install esptool``, command ``esptool``)
+   works the same way.
+
+4. esptool resets the chip after writing (``--after hard_reset`` is its default), and
+   the adapter starts the new firmware on its own; it appears again under its own
+   ``/dev/serial/by-id/`` name after a few seconds. This is what happened on all five
+   adapters updated on 2026-11-23. If it does not come back, press **RESET** (or unplug
+   and replug it).
+
+The settings in flash (NVS), including the WiFi data, are not touched by this.
+Writing ``boot_app0.bin`` makes the adapter start from ``app0`` again, even if it
+was running from ``app1`` after an ``++ota`` update.
+
+.. important::
+
+   **Put only one adapter at a time into the boot loader.** In the boot loader all
+   adapters report the same name and serial number ``0``, so there is no way to tell
+   them apart, and the ``by-id`` link points to just one of them. If you prefer to
+   address the adapter by its USB socket, use its ``/dev/serial/by-path/`` link
+   (``ls -l /dev/serial/by-path/`` lists them); that link stays the same in the boot
+   loader.
+
+If the adapter does not respond at all or does not show up on USB, start the boot
+loader by hand (BOOT + RESET) and flash it as above.
