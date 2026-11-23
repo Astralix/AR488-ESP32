@@ -452,6 +452,7 @@ Adapter
 
 =====================  ========================================================
 ``++ver``              firmware version
+``++help [cmd]``       **new on Rev5:** command list, or one command
 ``++mode [0|1]``       0 device, **1 controller**
 ``++savecfg``          save the configuration – **changed:** always confirms
 ``++default``          load factory defaults
@@ -490,8 +491,9 @@ WiFi
 
 .. note::
 
-   ``++help`` is not included in the Rev5 build to save flash; this manual and the
-   :ref:`Command Reference` replace it.
+   ``++help`` lists all commands with a one-line description; ``++help <command>``
+   shows only that command, for example ``++help eor``. The
+   :ref:`Command Reference` has the details.
 
 
 Troubleshooting

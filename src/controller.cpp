@@ -55,11 +55,11 @@
    ++eos          - specify GPIB termination character
    ++eot_enable   - enable/disable appending user specified character to USB output on EOI detection
    ++eot_char     - set character to append to USB output when EOT enabled
-   ++ifc          - assert IFC signal for 150 miscoseconds - make AR488 controller in charge
+   ++ifc          - assert IFC signal for 150 microseconds - make AR488 controller in charge
    ++llo          - local lockout - disable front panel operation on instrument
    ++loc          - enable front panel operation on instrument
    ++lon          - put controller in listen-only mode (listen to all traffic)
-   ++mode         - set the interface mode (0=controller/1=device)
+   ++mode         - set the interface mode (0=device/1=controller)
    ++read         - read data from instrument
    ++read_tmo_ms  - read timeout specified between 1 - 32000 milliseconds
    ++rst          - reset the controller
