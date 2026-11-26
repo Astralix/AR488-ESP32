@@ -337,7 +337,7 @@ void Controller::resetConfig() {
   // Set default values ({'\0'} sets version string array to null)
   config = {false, false, 2, 0, AR488_DEFAULT_PADDR, 0, 0, 0, 0, 1200, 0, {'\0'}, 0, 0, {'\0'}, 0, 0, false, false
 #ifdef AR488_WIFI_ENABLE
-			,{'\0'}, {'\0'}, {'\0'}, {'\0'}
+			,{'\0'}, {'\0'}, {'\0'}, {'\0'}, false
 #endif
   };
 }
@@ -385,6 +385,7 @@ void Controller::initConfig()
   if (pref.isKey("otapass")) {
 	pref.getBytes("otapass", config.otapass, sizeof(config.otapass));
   }
+  config.wifiOff = pref.getBool("wifiOff", config.wifiOff);
 #endif
   pref.end();
 
@@ -443,6 +444,7 @@ void Controller::saveConfig()
   pref.putBytes("passkey", config.passkey, sizeof(config.passkey));
   pref.putBytes("hostname", config.hostname, sizeof(config.hostname));
   pref.putBytes("otapass", config.otapass, sizeof(config.otapass));
+  pref.putBool("wifiOff", config.wifiOff);
 #endif
 
   pref.end();
@@ -547,8 +549,33 @@ const char *Controller::otaPassword()
  * connectWifi() as soon as the connection is up, and the ESP32 WiFi
  * stack reconnects automatically if the access point goes away.
  */
+void Controller::bootWifi()
+{
+  if (config.wifiOff) {          // permanently disabled: keep every radio off
+    radioOff();
+    serialstream->println(F("WiFi disabled, all radios off (++wifi enable to turn on)"));
+    return;
+  }
+  setupWifi();
+}
+
+/*
+ * Store the permanent radio switch at once, independent of ++savecfg
+ * (which saves it too, so both ways agree).
+ */
+bool Controller::storeWifiOff(bool off)
+{
+  config.wifiOff = off;
+  Preferences pref;
+  if (!pref.begin("ar488", false)) return false;
+  pref.putBool("wifiOff", off);
+  pref.end();
+  return true;
+}
+
 void Controller::setupWifi()
 {
+  radioDown = false;
   if (strlen(config.ssid) == 0) return;
   static bool eventRegistered = false;
   if (!eventRegistered) {
@@ -682,10 +709,37 @@ static void webUpdateDone()
   }
 }
 
+/*
+ * Switch off every transmitter of the adapter: drop the telnet client, stop
+ * the servers and mDNS, then shut down the WiFi driver (and the Bluetooth
+ * controller on chips that have one). Nothing transmits until setupWifi().
+ */
+void Controller::radioOff()
+{
+  if (tcpstream != NULL) {
+    serverclient.stop();
+    tcpstream = NULL;
+    if (cmdstream == (Stream*)&serverclient) cmdstream = serialstream;
+  }
+  if (wifiServerUp) {
+    MDNS.end();
+    webserver.stop();
+    wifiserver.end();
+    wifiServerUp = false;
+  }
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(true);   // also turns the station interface off
+  WiFi.mode(WIFI_OFF);     // stops the WiFi driver: no more beacons/probes
+#if defined(CONFIG_BT_ENABLED) && SOC_BT_SUPPORTED
+  if (btStarted()) btStop();
+#endif
+  wasConnected = false;    // no "connection lost" message for an intended stop
+  radioDown = true;
+}
+
 void Controller::connectWifi()
 {
   bool connected = (WiFi.status() == WL_CONNECTED);
-  static bool wasConnected = false;
   if (connected != wasConnected) {
     wasConnected = connected;
     if (connected) {
@@ -695,9 +749,13 @@ void Controller::connectWifi()
       if (!wifiServerUp) {
         wifiserver.begin();
         wifiserver.setNoDelay(true);
-        webCtrl = this;
-        webserver.on("/", HTTP_GET, webRoot);
-        webserver.on("/update", HTTP_POST, webUpdateDone, webUpload);
+        static bool routesSet = false;   // servers restart after ++wifi on
+        if (!routesSet) {
+          webCtrl = this;
+          webserver.on("/", HTTP_GET, webRoot);
+          webserver.on("/update", HTTP_POST, webUpdateDone, webUpload);
+          routesSet = true;
+        }
         webserver.begin();
         wifiServerUp = true;
       }
@@ -753,6 +811,10 @@ void Controller::connectWifi()
 
 void Controller::scanWifi()
 {
+  if (radioDown) {
+    cmdstream->println(F("WiFi is off (++wifi on)"));
+    return;
+  }
   // Scanning needs the station interface, which is off if no SSID is configured
   if (WiFi.getMode() == WIFI_OFF) WiFi.mode(WIFI_STA);
   cmdstream->println(F("Scanning..."));
@@ -790,7 +852,10 @@ void Controller::statusWifi()
   cmdstream->print(F("SSID:    "));
   cmdstream->println(strlen(config.ssid) ? config.ssid : "(not set)");
   cmdstream->print(F("Status:  "));
-  if (strlen(config.ssid) == 0) {
+  if (radioDown) {
+    cmdstream->println(config.wifiOff ? F("disabled - all radios off, ++wifi enable to turn on")
+                                      : F("off until reset - all radios off, ++wifi on to turn on"));
+  } else if (strlen(config.ssid) == 0) {
     cmdstream->println(F("off - set ++wifi ssid / ++wifi pass, then ++wifi connect"));
   } else if (WiFi.status() == WL_CONNECTED) {
     cmdstream->println(F("connected"));
@@ -869,7 +934,7 @@ void Controller::selectStream()
 {
 #ifdef AR488_WIFI_ENABLE
   // check for new tcp cnx
-  if (strlen(config.ssid) > 0)
+  if (strlen(config.ssid) > 0 && !radioDown)
 	connectWifi();
 #endif
   Stream *current = cmdstream;

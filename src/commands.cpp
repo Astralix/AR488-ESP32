@@ -1468,6 +1468,8 @@ void Controller::ota_h(char *params) {
  * ++wifi ssid - wifi endpoint
  * ++wifi pass - passphrase
  * ++wifi connect - to (re)start the wifi connection
+ * ++wifi off / on - all radios off until reset / on again (USB only)
+ * ++wifi disable / enable - all radios off permanently / undo (USB only)
  */
 void Controller::wifi_h(char *params) {
   uint8_t dlen = 0;
@@ -1536,7 +1538,7 @@ void Controller::wifi_h(char *params) {
       }
 	  else {
 		if (config.isVerb)
-		  cmdstream->println(F("Invalid keyword ([ssid, pass, host, connect, scan, status])"));
+		  cmdstream->println(F("Invalid keyword ([ssid, pass, host, connect, scan, status, on, off, enable, disable])"));
 	  }
     } else {
       if (strncmp(keyword, "ssid", 6)==0) {
@@ -1549,8 +1551,39 @@ void Controller::wifi_h(char *params) {
       else if (strncmp(keyword, "host", 4)==0) {
         cmdstream->println(wifiHostname());
       }
+      else if (strcmp(keyword, "off")==0 || strcmp(keyword, "on")==0 ||
+               strcmp(keyword, "disable")==0 || strcmp(keyword, "enable")==0) {
+        // Radio switch: USB only, so that the console that switches the radios
+        // off is never the one that is cut off by it
+        if (cmdstream != serialstream) {
+          cmdstream->println(F("++wifi on/off/enable/disable: USB console only"));
+          errBadCmd();
+          return;
+        }
+        bool off = (strcmp(keyword, "off")==0 || strcmp(keyword, "disable")==0);
+        if (keyword[0] == 'd' || keyword[0] == 'e') {   // permanent
+          if (!storeWifiOff(off)) {
+            cmdstream->println(F("ERROR - setting could not be saved!"));
+            return;
+          }
+        }
+        if (off) {
+          radioOff();
+          cmdstream->println(config.wifiOff ? F("WiFi disabled, all radios off (++wifi enable to turn on)")
+                                            : F("All radios off until reset (++wifi on to turn on)"));
+        } else {
+          if (radioIsOff()) setupWifi();
+          if (config.wifiOff)
+            cmdstream->println(F("WiFi on until reset (still disabled at boot, ++wifi enable)"));
+          else
+            cmdstream->println(strlen(config.ssid) ? F("WiFi on") : F("WiFi on (no SSID set)"));
+        }
+      }
       else if (strncmp(keyword, "connect", 7)==0) {
-        setupWifi();
+        if (radioIsOff())
+          cmdstream->println(F("WiFi is off (++wifi on)"));
+        else
+          setupWifi();
       }
       else if (strncmp(keyword, "scan", 4)==0) {
         scanWifi();
@@ -1560,7 +1593,7 @@ void Controller::wifi_h(char *params) {
       }
 	  else {
 		if (config.isVerb)
-		  cmdstream->println(F("Invalid keyword ([ssid, pass, host, connect, scan, status])"));
+		  cmdstream->println(F("Invalid keyword ([ssid, pass, host, connect, scan, status, on, off, enable, disable])"));
 	  }
     }
   }
@@ -1627,6 +1660,8 @@ static const char cmdHelp[] PROGMEM = {
   "wifi scan: Scan for accessible AP\n"
   "wifi status: Show WiFi connection state, IP address and signal\n"
   "wifi host: Set or get the network host name ('auto' = ar488-<MAC>)\n"
+  "wifi off: Switch all radios off until reset (USB only); wifi on: switch them on again\n"
+  "wifi disable: Switch all radios off, also after reset (USB only); wifi enable: undo\n"
 #endif
   "xdiag: Bus diagnostics (see the doc)\n"
 };

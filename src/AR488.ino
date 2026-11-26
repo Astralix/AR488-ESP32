@@ -95,8 +95,9 @@ void setup() {
   controller->initConfig();
 	controller->serialstream->println("Config init done");
 #ifdef AR488_WIFI_ENABLE
-  // Connect to the configured WiFi network (non-blocking)
-  controller->setupWifi();
+  // Connect to the configured WiFi network (non-blocking),
+  // unless the radios are permanently disabled (++wifi disable)
+  controller->bootWifi();
 #endif
 #if defined(USE_MACROS)
   // Run startup macro

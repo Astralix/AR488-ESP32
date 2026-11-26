@@ -39,6 +39,7 @@ plus a number of new features:
 - wireless connections (wifi and/or bluetooth, depending on the EPS32 core used),
 - embedded help message
 - run-time configurable wifi connection settings (stored in the nvram),
+- radio switch over USB: `++wifi off`/`on` until reset, `++wifi disable`/`enable` permanently,
 - up to 10 run-time editable macros (stored in the nvram), macro 0 being executed at startup
 - `++allspoll` command (implement the IEEE-488.2 ``ALLSPOLL`` protocol)
 - `++findlstn` command (implement the IEEE-488.2 ``FINDLSTN`` protocol)

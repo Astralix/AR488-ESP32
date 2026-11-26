@@ -921,9 +921,25 @@ then connects at every power-on and reconnects on its own.
    (Re)connect with the current settings, for example after changing SSID, password
    or host name.
 
+``++wifi off`` / ``++wifi on``
+   Switch all radios off (WiFi, and Bluetooth on chips that have it), for example
+   for measurements in the 2.4 GHz band. The telnet client is dropped, web page and
+   mDNS stop, and the WiFi driver is shut down. ``off`` lasts until the next reset or
+   power cycle; ``on`` switches the radios on again and reconnects. While off,
+   ``++wifi connect`` and ``++wifi scan`` are refused.
+
+``++wifi disable`` / ``++wifi enable``
+   Like ``off``/``on``, but stored in flash at once (no ``++savecfg`` needed): after
+   ``disable`` the radios stay off at every start until ``enable``. ``++wifi on``
+   on a disabled adapter switches the radios on only until the next reset.
+
+   ``off``, ``on``, ``disable`` and ``enable`` are accepted on the USB console only;
+   over the network they return an error.
+
 :Modes: controller, device
-:Syntax: ``++wifi [status|scan|connect]``, ``++wifi ssid [name]``,
-         ``++wifi pass [password]``, ``++wifi host [name|auto]``
+:Syntax: ``++wifi [status|scan|connect|off|on|disable|enable]``,
+         ``++wifi ssid [name]``, ``++wifi pass [password]``,
+         ``++wifi host [name|auto]``
 
 ``++xdiag``
 +++++++++++

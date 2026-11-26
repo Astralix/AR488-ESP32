@@ -37,8 +37,9 @@ GPIB-ETHERNET controller works with it.
    * - Default target
      - instrument at GPIB address 18
 
-The USB and WiFi consoles are equivalent: every command works on both. The adapter
-answers on whichever console sent the last command.
+The USB and WiFi consoles are equivalent: every command works on both, except the
+radio switch (``++wifi off``/``on``/``disable``/``enable``), which is USB only. The
+adapter answers on whichever console sent the last command.
 
 
 Getting Started over USB
@@ -82,7 +83,7 @@ Example with picocom (``-c`` shows what you type):
 Type ``++ver`` and Enter. The adapter replies with its version::
 
    ++ver
-   AR488 GPIB controller, ver. 0.49.17, 23/11/2026
+   AR488 GPIB controller, ver. 0.49.18, 23/11/2026
 
 Leave picocom with :kbd:`Ctrl-A` :kbd:`Ctrl-X`. On Windows, PuTTY or Tera Term work
 the same way.
@@ -307,6 +308,40 @@ The name is used in two ways:
    reflector*, *mDNS repeater* or *Multicast DNS* depending on the router). Otherwise
    use the IP address or a fixed DNS entry on the router.
 
+Switching the radios off
+------------------------
+
+WiFi (and Bluetooth, on chips that have it) transmits in the 2.4 GHz band and shows
+up in measurements there – for example on a spectrum analyzer or receiver looking at
+2.4–2.5 GHz. For such measurements, or where radio transmitters are not allowed, the
+adapter can switch off all its radios. The WiFi driver is stopped completely (no connection, no scans, no
+beacons), the telnet client is dropped and the web page and mDNS stop. On ESP32 chips
+with Bluetooth, the Bluetooth controller is stopped too; the ESP32-S2 of the Rev5
+board has no Bluetooth. USB works as before.
+
+.. code-block:: text
+
+   ++wifi off        all radios off until the next reset or power cycle
+   ++wifi on         radios on again, reconnect with the stored settings
+   ++wifi disable    all radios off, also after reset (stored at once)
+   ++wifi enable     undo ++wifi disable and switch the radios on
+
+``off`` is forgotten at reset: after ``++rst`` or a power cycle the adapter connects as
+usual. ``disable`` is written to the flash memory at once – no ``++savecfg`` needed –
+and keeps the radios off at every start until ``++wifi enable``. While disabled, the
+adapter reports at start-up::
+
+   WiFi disabled, all radios off (++wifi enable to turn on)
+
+``++wifi on`` on a disabled adapter switches the radios on only until the next reset;
+the stored setting stays.
+
+These four commands are accepted **only on the USB console** – the command that
+switches the radios off would otherwise cut off the console it came from. Over the
+network they answer with an error. While the radios are off, ``++wifi status`` shows
+``off until reset`` or ``disabled``, and ``++wifi connect`` and ``++wifi scan`` refuse
+with ``WiFi is off (++wifi on)``. SSID, password and host name can still be set.
+
 
 Network Access
 ==============
@@ -438,7 +473,9 @@ Bus control
 ``++trg [addr …]``     trigger the current or the listed instruments
 ``++llo`` / ``++loc``  lock / unlock the instrument's front panel
 ``++ren [0|1]``        assert or release REN
-``++spoll [addr]``     serial poll; ``++allspoll`` lists all status bytes
+``++spoll [addr …]``   serial poll; with several addresses or ``all`` it
+                       reports only the instrument requesting service;
+                       ``++allspoll`` lists all status bytes
 ``++srq``              state of the SRQ line
 ``++srqauto [0|1]``    serial poll automatically when SRQ is asserted
 ``++findrqs``          find the instrument requesting service
@@ -481,6 +518,10 @@ WiFi
                                 query only answers ``set``/``not set``
 ``++wifi host [name|auto]``     **new:** show/set the host name
 ``++wifi connect``              connect now with the current settings
+``++wifi off`` / ``++wifi on``  **new:** all radios off until reset / on again
+                                (USB only, see `Switching the radios off`_)
+``++wifi disable``/``enable``   **new:** all radios off permanently / undo
+                                (USB only, stored at once)
 ``++ota [url]``                 **new:** without argument: running partition and
                                 version; with an ``http://`` URL: update the
                                 firmware over WiFi (see `Updating over WiFi`_)
@@ -624,7 +665,7 @@ reach will do.
 3. Check the result::
 
       ++ota
-      running from app1, AR488 GPIB controller, ver. 0.49.17, 23/11/2026
+      running from app1, AR488 GPIB controller, ver. 0.49.18, 23/11/2026
 
 Only ``http://`` URLs are accepted (no ``https://``), and the adapter must be
 connected to WiFi. On an error it answers ``OTA failed: <reason>`` and nothing is

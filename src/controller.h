@@ -44,6 +44,7 @@ typedef struct {
   char passkey[64]; // same
   char hostname[32]; // network host name (empty = default "ar488-<MAC>")
   char otapass[64];  // password of the web update page (empty = default "ar488-<MAC>")
+  bool wifiOff;      // radio permanently disabled (++wifi disable)
 #endif
 } AR488Conf;
 
@@ -68,12 +69,16 @@ public:
   void setGPIB(GPIB *gpib) {this->gpib = gpib;};
   void execCmd();
 #ifdef AR488_WIFI_ENABLE
+  void bootWifi();
   void setupWifi();
   void connectWifi();
   void scanWifi();
   void statusWifi();
   const char *wifiHostname();
   const char *otaPassword();
+  void radioOff();
+  bool storeWifiOff(bool off);
+  bool radioIsOff() {return radioDown;};
 #endif
 #if defined (USE_MACROS)
   void displayMacros();
@@ -94,6 +99,8 @@ private:
   WiFiServer wifiserver;
   WiFiClient serverclient;
   bool wifiServerUp = false;   // TCP console server started
+  bool wasConnected = false;   // WiFi state seen by the last connectWifi() call
+  bool radioDown = false;      // all radios off (++wifi off/disable), until reset or ++wifi on
 #endif
 
 /***** PARSE BUFFERS *****/
